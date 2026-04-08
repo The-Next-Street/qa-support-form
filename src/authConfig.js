@@ -17,7 +17,7 @@ export const msalConfig = {
 
 // Scopes needed to read/write to SharePoint and send email
 export const loginRequest = {
-    scopes: ["Sites.ReadWrite.All", "Mail.Send"],
+    scopes: ["Sites.ReadWrite.All", "Mail.Send", "User.Read", "People.Read"],
 };
 
 // ─────────────────────────────────────────────────────────────────────────────

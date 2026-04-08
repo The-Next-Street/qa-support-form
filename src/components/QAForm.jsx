@@ -1,9 +1,150 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useMsal } from "@azure/msal-react";
 import { loginRequest } from "../authConfig";
 import { submitQARecord, sendScoreEmail } from "../sharepointService";
 import { QA_QUESTIONS_BY_CHANNEL, CHANNELS } from "../questions";
 import { COLORS, FONTS, GRADIENT } from "../brand";
+
+// ── Microsoft Graph people search ───────────────────────────────────────────
+
+async function searchPeople(accessToken, query) {
+  if (!query || query.length < 2) return [];
+  const endpoint =
+    `https://graph.microsoft.com/v1.0/users?$filter=startswith(displayName,'${encodeURIComponent(query)}') or startswith(mail,'${encodeURIComponent(query)}')&$top=8&$select=displayName,mail,id`;
+  try {
+    const res = await fetch(endpoint, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!res.ok) return [];
+    const data = await res.json();
+    return (data.value || []).map((u) => ({
+      name: u.displayName,
+      email: u.mail || "",
+      id: u.id,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+// ── Type-ahead component ────────────────────────────────────────────────────
+
+function UserTypeAhead({ value, email, onChange, onSelect, placeholder, label, accessToken }) {
+  const [suggestions, setSuggestions] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const debounceRef = useRef(null);
+  const wrapperRef = useRef(null);
+
+  const doSearch = useCallback(
+    async (q) => {
+      if (!accessToken || q.length < 2) {
+        setSuggestions([]);
+        return;
+      }
+      setLoading(true);
+      const results = await searchPeople(accessToken, q);
+      setSuggestions(results);
+      setShowDropdown(results.length > 0);
+      setLoading(false);
+    },
+    [accessToken]
+  );
+
+  function handleChange(e) {
+    const val = e.target.value;
+    onChange(val, "");
+    clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => doSearch(val), 300);
+  }
+
+  function handleSelect(user) {
+    onSelect(user.name, user.email);
+    setShowDropdown(false);
+    setSuggestions([]);
+  }
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    function handleClick(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div ref={wrapperRef} style={{ position: "relative" }}>
+      <label style={{ fontSize: 13, fontWeight: 600, color: COLORS.gray, marginBottom: 6, display: "block" }}>
+        {label}
+      </label>
+      <input
+        style={{
+          padding: "10px 12px",
+          border: `1.5px solid ${COLORS.lightGray}`,
+          borderRadius: 8,
+          fontSize: 14,
+          outline: "none",
+          fontFamily: FONTS.body,
+          width: "100%",
+          boxSizing: "border-box",
+        }}
+        value={value}
+        onChange={handleChange}
+        onFocus={() => suggestions.length > 0 && setShowDropdown(true)}
+        placeholder={placeholder}
+        autoComplete="off"
+      />
+      {email && (
+        <div style={{ fontSize: 11, color: COLORS.midGray, marginTop: 3 }}>{email}</div>
+      )}
+      {showDropdown && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            background: COLORS.white,
+            border: `1.5px solid ${COLORS.lightGray}`,
+            borderRadius: 8,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+            zIndex: 100,
+            maxHeight: 220,
+            overflowY: "auto",
+            marginTop: 4,
+          }}
+        >
+          {loading && (
+            <div style={{ padding: "10px 14px", fontSize: 13, color: COLORS.midGray }}>Searching...</div>
+          )}
+          {suggestions.map((user) => (
+            <div
+              key={user.id || user.email}
+              onClick={() => handleSelect(user)}
+              style={{
+                padding: "10px 14px",
+                cursor: "pointer",
+                fontSize: 14,
+                borderBottom: `1px solid ${COLORS.offWhite}`,
+                transition: "background 0.1s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#FEF3E2")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = COLORS.white)}
+            >
+              <div style={{ fontWeight: 600, color: COLORS.gray }}>{user.name}</div>
+              {user.email && (
+                <div style={{ fontSize: 12, color: COLORS.midGray, marginTop: 2 }}>{user.email}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 const styles = {
   page: {
@@ -197,6 +338,25 @@ function scoreColor(pct) {
 
 export default function QAForm() {
   const { instance, accounts } = useMsal();
+  const [accessToken, setAccessToken] = useState(null);
+
+  // Auto-fill evaluator from signed-in user and get access token
+  const signedInName = accounts[0]?.name || accounts[0]?.username || "";
+
+  useEffect(() => {
+    async function getToken() {
+      try {
+        const tokenRes = await instance.acquireTokenSilent({
+          ...loginRequest,
+          account: accounts[0],
+        });
+        setAccessToken(tokenRes.accessToken);
+      } catch {
+        // Token will be acquired on submit if silent fails
+      }
+    }
+    if (accounts[0]) getToken();
+  }, [instance, accounts]);
 
   const [channel, setChannel] = useState("Phone");
   const questions = QA_QUESTIONS_BY_CHANNEL[channel];
@@ -206,7 +366,7 @@ export default function QAForm() {
   const [answers, setAnswers] = useState(initialAnswers);
   const [agentName, setAgentName] = useState("");
   const [agentEmail, setAgentEmail] = useState("");
-  const [evaluatorName, setEvaluatorName] = useState("");
+  const [evaluatorName, setEvaluatorName] = useState(signedInName);
   const [suggestions, setSuggestions] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
@@ -318,7 +478,7 @@ export default function QAForm() {
     setAnswers(Object.fromEntries(QA_QUESTIONS_BY_CHANNEL.Phone.map((q) => [q.field, null])));
     setAgentName("");
     setAgentEmail("");
-    setEvaluatorName("");
+    setEvaluatorName(signedInName);
     setSuggestions("");
     setSubmitted(false);
     setError(null);
@@ -428,35 +588,24 @@ export default function QAForm() {
 
           {/* Agent / Evaluator */}
           <div style={styles.row}>
-            <div style={styles.col}>
-              <label style={styles.label}>Agent Name *</label>
-              <input
-                style={styles.input}
+            <div style={{ ...styles.col, flex: 2 }}>
+              <UserTypeAhead
+                label="Agent Name *"
                 value={agentName}
-                onChange={(e) => setAgentName(e.target.value)}
-                placeholder="Full name"
-                required
+                email={agentEmail}
+                onChange={(name, email) => { setAgentName(name); setAgentEmail(email); }}
+                onSelect={(name, email) => { setAgentName(name); setAgentEmail(email); }}
+                placeholder="Start typing agent name..."
+                accessToken={accessToken}
               />
             </div>
             <div style={styles.col}>
-              <label style={styles.label}>Agent Email *</label>
+              <label style={styles.label}>Evaluator</label>
               <input
-                style={styles.input}
-                type="email"
-                value={agentEmail}
-                onChange={(e) => setAgentEmail(e.target.value)}
-                placeholder="agent@thenextstreet.com"
-                required
-              />
-            </div>
-            <div style={styles.col}>
-              <label style={styles.label}>Evaluator Name *</label>
-              <input
-                style={styles.input}
+                style={{ ...styles.input, background: "#F5F5F5", color: COLORS.midGray }}
                 value={evaluatorName}
-                onChange={(e) => setEvaluatorName(e.target.value)}
-                placeholder="Your full name"
-                required
+                readOnly
+                tabIndex={-1}
               />
             </div>
           </div>
