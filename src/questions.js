@@ -127,9 +127,9 @@ function buildQuestions(channel) {
     specific.Q16,
     specific.Q17,
     specific.Q18,
-    ...SHARED_QUESTIONS.slice(8, 12),  // Q19–Q23
+    ...SHARED_QUESTIONS.slice(8, 13),  // Q19–Q23
     specific.Q24,
-    ...SHARED_QUESTIONS.slice(12),     // Q25
+    ...SHARED_QUESTIONS.slice(13),     // Q25
   ];
   return all;
 }
