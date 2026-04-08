@@ -152,6 +152,7 @@ async function fetchQARecords(accessToken) {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
+      Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly",
     },
   });
 
