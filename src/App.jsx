@@ -1,10 +1,14 @@
-import React from "react";
+import React, { useState } from "react";
 import { MsalProvider, AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { PublicClientApplication } from "@azure/msal-browser";
 import { msalConfig, loginRequest } from "./authConfig";
+import { COLORS, FONTS, GRADIENT } from "./brand";
 import QAForm from "./components/QAForm";
+import Dashboard from "./components/Dashboard";
 
 const msalInstance = new PublicClientApplication(msalConfig);
+
+// ── Sign-In Page ────────────────────────────────────────────────────────────
 
 function SignInPage() {
   const { instance } = useMsal();
@@ -16,13 +20,13 @@ function SignInPage() {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "linear-gradient(135deg, #e8f0fe 0%, #f0f4f8 100%)",
-        fontFamily: "Arial, sans-serif",
+        background: COLORS.offWhite,
+        fontFamily: FONTS.body,
       }}
     >
       <div
         style={{
-          background: "#fff",
+          background: COLORS.white,
           borderRadius: 12,
           boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
           padding: "48px 40px",
@@ -30,38 +34,45 @@ function SignInPage() {
           maxWidth: 400,
         }}
       >
+        {/* TNS logo-colored circle */}
         <div
           style={{
             width: 64,
             height: 64,
             borderRadius: "50%",
-            background: "#E8F0FE",
+            background: "#FEF3E2",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             margin: "0 auto 20px",
-            fontSize: 28,
           }}
         >
-          🔒
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none">
+            <path d="M12 2L4 7v10l8 5 8-5V7l-8-5z" fill={COLORS.orange} />
+            <path d="M12 2v20M4 7l16 10M20 7L4 17" stroke={COLORS.white} strokeWidth="1.5" />
+          </svg>
         </div>
-        <h2 style={{ margin: "0 0 8px", color: "#1F5C99", fontSize: 22 }}>
-          Support Quality Assurance
+        <h2 style={{ margin: "0 0 4px", color: COLORS.orange, fontSize: 22, fontFamily: FONTS.heading }}>
+          The Next Street
         </h2>
-        <p style={{ color: "#666", margin: "0 0 28px", fontSize: 14 }}>
-          Sign in with your Microsoft work account to access the QA screening form.
+        <p style={{ margin: "0 0 4px", color: COLORS.gray, fontSize: 16, fontWeight: 600, fontFamily: FONTS.heading }}>
+          Quality Assurance
+        </p>
+        <p style={{ color: COLORS.midGray, margin: "0 0 28px", fontSize: 14 }}>
+          Sign in with your Microsoft work account to continue.
         </p>
         <button
           onClick={() => instance.loginPopup(loginRequest)}
           style={{
             width: "100%",
             padding: "12px",
-            background: "#1F5C99",
-            color: "#fff",
+            background: GRADIENT.orange,
+            color: COLORS.white,
             border: "none",
             borderRadius: 8,
             fontSize: 15,
             fontWeight: 600,
+            fontFamily: FONTS.heading,
             cursor: "pointer",
             display: "flex",
             alignItems: "center",
@@ -69,53 +80,108 @@ function SignInPage() {
             gap: 10,
           }}
         >
-          <span style={{ fontSize: 18 }}>🏢</span> Sign in with Microsoft
+          Sign in with Microsoft
         </button>
-        <p style={{ color: "#aaa", fontSize: 12, margin: "16px 0 0" }}>
-          The Next Street · Customer Service Department
+        <p style={{ color: COLORS.lightGray, fontSize: 12, margin: "16px 0 0" }}>
+          The Next Street {"\u00B7"} Customer Service Department
         </p>
       </div>
     </div>
   );
 }
 
-function AppContent() {
+// ── Navigation Bar ──────────────────────────────────────────────────────────
+
+function NavBar({ page, setPage }) {
   const { accounts, instance } = useMsal();
+
+  return (
+    <div
+      style={{
+        background: COLORS.charcoal,
+        color: "rgba(255,255,255,0.7)",
+        fontSize: 13,
+        padding: "0 20px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        fontFamily: FONTS.body,
+      }}
+    >
+      {/* Left: brand + nav tabs */}
+      <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+        <span
+          style={{
+            fontFamily: FONTS.heading,
+            fontWeight: 700,
+            color: COLORS.orange,
+            fontSize: 14,
+            marginRight: 24,
+            padding: "10px 0",
+          }}
+        >
+          TNS Quality Assurance
+        </span>
+        {[
+          { key: "dashboard", label: "Dashboard" },
+          { key: "form", label: "New Screening" },
+        ].map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setPage(tab.key)}
+            style={{
+              background: "none",
+              border: "none",
+              borderBottom: page === tab.key ? `2px solid ${COLORS.orange}` : "2px solid transparent",
+              color: page === tab.key ? COLORS.white : "rgba(255,255,255,0.5)",
+              padding: "10px 16px",
+              fontSize: 13,
+              fontWeight: 600,
+              fontFamily: FONTS.heading,
+              cursor: "pointer",
+              transition: "all 0.15s",
+            }}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Right: user + sign out */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+        <span style={{ fontSize: 12 }}>
+          {accounts[0]?.name || accounts[0]?.username}
+        </span>
+        <button
+          onClick={() => instance.logoutPopup()}
+          style={{
+            background: "none",
+            border: `1px solid rgba(255,255,255,0.2)`,
+            color: "rgba(255,255,255,0.6)",
+            padding: "3px 10px",
+            borderRadius: 4,
+            cursor: "pointer",
+            fontSize: 12,
+            fontFamily: FONTS.body,
+          }}
+        >
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── App Content ─────────────────────────────────────────────────────────────
+
+function AppContent() {
+  const [page, setPage] = useState("dashboard");
 
   return (
     <>
       <AuthenticatedTemplate>
-        {/* Thin top bar with user info + sign out */}
-        <div
-          style={{
-            background: "#154073",
-            color: "#A9C4DE",
-            fontSize: 12,
-            padding: "6px 20px",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span>
-            Signed in as <strong style={{ color: "#fff" }}>{accounts[0]?.name || accounts[0]?.username}</strong>
-          </span>
-          <button
-            onClick={() => instance.logoutPopup()}
-            style={{
-              background: "none",
-              border: "1px solid #4a7ab5",
-              color: "#A9C4DE",
-              padding: "3px 10px",
-              borderRadius: 4,
-              cursor: "pointer",
-              fontSize: 12,
-            }}
-          >
-            Sign out
-          </button>
-        </div>
-        <QAForm />
+        <NavBar page={page} setPage={setPage} />
+        {page === "dashboard" ? <Dashboard /> : <QAForm />}
       </AuthenticatedTemplate>
 
       <UnauthenticatedTemplate>

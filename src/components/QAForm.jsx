@@ -3,41 +3,43 @@ import { useMsal } from "@azure/msal-react";
 import { loginRequest } from "../authConfig";
 import { submitQARecord, sendScoreEmail } from "../sharepointService";
 import { QA_QUESTIONS_BY_CHANNEL, CHANNELS } from "../questions";
+import { COLORS, FONTS, GRADIENT } from "../brand";
 
 const styles = {
   page: {
     minHeight: "100vh",
-    background: "linear-gradient(135deg, #e8f0fe 0%, #f0f4f8 100%)",
+    background: COLORS.offWhite,
     padding: "24px 16px",
-    fontFamily: "Arial, sans-serif",
+    fontFamily: FONTS.body,
   },
   card: {
     maxWidth: 860,
     margin: "0 auto",
-    background: "#fff",
+    background: COLORS.white,
     borderRadius: 12,
     boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
     overflow: "hidden",
   },
   header: {
-    background: "linear-gradient(135deg, #1F5C99 0%, #154073 100%)",
+    background: GRADIENT.orange,
     padding: "28px 32px",
-    color: "#fff",
+    color: COLORS.white,
   },
-  headerTitle: { margin: 0, fontSize: 24, fontWeight: 700 },
-  headerSub: { margin: "6px 0 0", fontSize: 14, color: "#A9C4DE" },
+  headerTitle: { margin: 0, fontSize: 24, fontWeight: 700, fontFamily: FONTS.heading },
+  headerSub: { margin: "6px 0 0", fontSize: 14, color: "rgba(255,255,255,0.8)" },
   body: { padding: "28px 32px" },
 
   row: { display: "flex", gap: 16, marginBottom: 16 },
   col: { flex: 1, display: "flex", flexDirection: "column" },
-  label: { fontSize: 13, fontWeight: 600, color: "#444", marginBottom: 6 },
+  label: { fontSize: 13, fontWeight: 600, color: COLORS.gray, marginBottom: 6 },
   input: {
     padding: "10px 12px",
-    border: "1.5px solid #ddd",
+    border: `1.5px solid ${COLORS.lightGray}`,
     borderRadius: 8,
     fontSize: 14,
     outline: "none",
     transition: "border-color 0.15s",
+    fontFamily: FONTS.body,
   },
 
   sectionHeader: {
@@ -47,16 +49,17 @@ const styles = {
     margin: "24px 0 12px",
   },
   sectionPill: {
-    background: "#1F5C99",
-    color: "#fff",
+    background: COLORS.orange,
+    color: COLORS.white,
     fontSize: 11,
     fontWeight: 700,
     padding: "3px 10px",
     borderRadius: 12,
     letterSpacing: 0.5,
     textTransform: "uppercase",
+    fontFamily: FONTS.heading,
   },
-  sectionLine: { flex: 1, height: 1, background: "#e0e8f0" },
+  sectionLine: { flex: 1, height: 1, background: COLORS.lightGray },
 
   questionRow: {
     display: "flex",
@@ -72,16 +75,17 @@ const styles = {
     height: 28,
     minWidth: 28,
     borderRadius: "50%",
-    background: "#e8f0fe",
-    color: "#1F5C99",
+    background: "#FEF3E2",
+    color: COLORS.orange,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     fontSize: 12,
     fontWeight: 700,
     marginTop: 1,
+    fontFamily: FONTS.heading,
   },
-  questionText: { flex: 1, fontSize: 14, color: "#333", lineHeight: 1.5, paddingTop: 4 },
+  questionText: { flex: 1, fontSize: 14, color: COLORS.gray, lineHeight: 1.5, paddingTop: 4 },
   toggleGroup: { display: "flex", gap: 6, marginTop: 4 },
   toggleBtn: (selected, variant) => ({
     padding: "5px 16px",
@@ -91,15 +95,16 @@ const styles = {
     fontSize: 13,
     fontWeight: 600,
     transition: "all 0.15s",
+    fontFamily: FONTS.body,
     borderColor: variant === "Yes"
-      ? (selected ? "#2E7D32" : "#ccc")
-      : (selected ? "#C62828" : "#ccc"),
+      ? (selected ? COLORS.green : "#ccc")
+      : (selected ? COLORS.fail : "#ccc"),
     background: variant === "Yes"
-      ? (selected ? "#E8F5E9" : "#fff")
-      : (selected ? "#FFEBEE" : "#fff"),
+      ? (selected ? COLORS.passBg : COLORS.white)
+      : (selected ? COLORS.failBg : COLORS.white),
     color: variant === "Yes"
-      ? (selected ? "#2E7D32" : "#999")
-      : (selected ? "#C62828" : "#999"),
+      ? (selected ? COLORS.green : "#999")
+      : (selected ? COLORS.fail : "#999"),
   }),
 
   scoreBar: {
@@ -111,13 +116,14 @@ const styles = {
     alignItems: "center",
     gap: 20,
   },
-  scoreNum: { fontSize: 36, fontWeight: 800, lineHeight: 1 },
-  scoreSub: { fontSize: 12, color: "#666", marginTop: 2 },
+  scoreNum: { fontSize: 36, fontWeight: 800, lineHeight: 1, fontFamily: FONTS.heading },
+  scoreSub: { fontSize: 12, color: COLORS.midGray, marginTop: 2 },
   scoreBadge: {
     padding: "4px 14px",
     borderRadius: 20,
     fontSize: 13,
     fontWeight: 700,
+    fontFamily: FONTS.heading,
   },
   progressTrack: {
     flex: 1,
@@ -130,13 +136,13 @@ const styles = {
   textarea: {
     width: "100%",
     padding: "10px 12px",
-    border: "1.5px solid #ddd",
+    border: `1.5px solid ${COLORS.lightGray}`,
     borderRadius: 8,
     fontSize: 14,
     resize: "vertical",
     minHeight: 90,
     outline: "none",
-    fontFamily: "Arial, sans-serif",
+    fontFamily: FONTS.body,
     boxSizing: "border-box",
   },
 
@@ -145,12 +151,13 @@ const styles = {
     width: "100%",
     padding: "14px",
     marginTop: 24,
-    background: disabled ? "#aaa" : "linear-gradient(135deg, #1F5C99, #154073)",
-    color: "#fff",
+    background: disabled ? "#aaa" : GRADIENT.orange,
+    color: COLORS.white,
     border: "none",
     borderRadius: 8,
     fontSize: 16,
     fontWeight: 700,
+    fontFamily: FONTS.heading,
     cursor: disabled ? "not-allowed" : "pointer",
     transition: "opacity 0.2s",
   }),
@@ -163,7 +170,7 @@ const styles = {
     width: 72,
     height: 72,
     borderRadius: "50%",
-    background: "#E8F5E9",
+    background: COLORS.passBg,
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -171,21 +178,21 @@ const styles = {
     fontSize: 36,
   },
   errorBox: {
-    background: "#FFEBEE",
+    background: COLORS.failBg,
     border: "1px solid #FFCDD2",
     borderRadius: 8,
     padding: "12px 16px",
-    color: "#C62828",
+    color: COLORS.fail,
     fontSize: 14,
     marginTop: 16,
   },
 };
 
 function scoreColor(pct) {
-  if (pct >= 90) return { border: "#2E7D32", text: "#2E7D32", bar: "#4CAF50", bg: "#F1F8E9" };
-  if (pct >= 80) return { border: "#388E3C", text: "#388E3C", bar: "#66BB6A", bg: "#E8F5E9" };
-  if (pct >= 70) return { border: "#F57F17", text: "#F57F17", bar: "#FFA726", bg: "#FFF8E1" };
-  return { border: "#C62828", text: "#C62828", bar: "#EF5350", bg: "#FFEBEE" };
+  if (pct >= 90) return { border: COLORS.green, text: COLORS.green, bar: COLORS.green, bg: COLORS.passBg };
+  if (pct >= 80) return { border: COLORS.green, text: COLORS.green, bar: "#66BB6A", bg: COLORS.passBg };
+  if (pct >= 70) return { border: COLORS.orange, text: COLORS.orange, bar: COLORS.clementine, bg: COLORS.warningBg };
+  return { border: COLORS.fail, text: COLORS.fail, bar: "#EF5350", bg: COLORS.failBg };
 }
 
 export default function QAForm() {
@@ -249,7 +256,6 @@ export default function QAForm() {
         PassFail: passFail,
       });
 
-      // Send the agent an email with their score
       try {
         await sendScoreEmail(tokenResponse.accessToken, {
           agentName: agentName.trim(),
@@ -266,7 +272,6 @@ export default function QAForm() {
 
       setSubmitted(true);
     } catch (err) {
-      // If silent token acquisition fails, try interactive
       if (err.name === "InteractionRequiredAuthError") {
         try {
           const tokenResponse = await instance.acquireTokenPopup(loginRequest);
@@ -275,18 +280,19 @@ export default function QAForm() {
             AgentName: agentName.trim(),
             AgentEmail: agentEmail.trim(),
             EvaluatorName: evaluatorName.trim(),
+            Channel: channel,
             SuggestionsForImprovement: suggestions.trim(),
             TotalScore: totalScore,
             ScorePercent: scorePercent,
             PassFail: passFail,
           });
 
-          // Send the agent an email with their score
           try {
             await sendScoreEmail(tokenResponse.accessToken, {
               agentName: agentName.trim(),
               agentEmail: agentEmail.trim(),
               evaluatorName: evaluatorName.trim(),
+              channel,
               scorePercent,
               totalScore,
               passFail,
@@ -326,10 +332,10 @@ export default function QAForm() {
             <h1 style={styles.headerTitle}>Support Quality Assurance</h1>
           </div>
           <div style={styles.successBox}>
-            <div style={styles.successCircle}>â</div>
-            <h2 style={{ margin: "0 0 8px", color: "#1F5C99" }}>Screening Submitted</h2>
-            <p style={{ color: "#555", margin: "0 0 8px" }}>
-              <strong>{agentName}</strong> · {channel} · evaluated by <strong>{evaluatorName}</strong>
+            <div style={styles.successCircle}>{"\u2714"}</div>
+            <h2 style={{ margin: "0 0 8px", color: COLORS.orange, fontFamily: FONTS.heading }}>Screening Submitted</h2>
+            <p style={{ color: COLORS.gray, margin: "0 0 8px" }}>
+              <strong>{agentName}</strong> {"\u00B7"} {channel} {"\u00B7"} evaluated by <strong>{evaluatorName}</strong>
             </p>
             <div
               style={{
@@ -343,14 +349,14 @@ export default function QAForm() {
                 margin: "12px 0 24px",
               }}
             >
-              <span style={{ fontSize: 28, fontWeight: 800, color: colors.text }}>
+              <span style={{ fontSize: 28, fontWeight: 800, color: colors.text, fontFamily: FONTS.heading }}>
                 {scorePercent}%
               </span>
               <span
                 style={{
                   ...styles.scoreBadge,
                   background: colors.border,
-                  color: "#fff",
+                  color: COLORS.white,
                 }}
               >
                 {passFail}
@@ -361,12 +367,13 @@ export default function QAForm() {
               onClick={resetForm}
               style={{
                 padding: "10px 28px",
-                background: "#1F5C99",
-                color: "#fff",
+                background: COLORS.orange,
+                color: COLORS.white,
                 border: "none",
                 borderRadius: 8,
                 fontSize: 14,
                 fontWeight: 600,
+                fontFamily: FONTS.heading,
                 cursor: "pointer",
               }}
             >
@@ -385,7 +392,7 @@ export default function QAForm() {
         <div style={styles.header}>
           <h1 style={styles.headerTitle}>Support Quality Assurance</h1>
           <p style={styles.headerSub}>
-            {channel} · 20 criteria · 5 points each · 100 points max · Pass threshold: 80%
+            {channel} {"\u00B7"} 20 criteria {"\u00B7"} 5 points each {"\u00B7"} 100 points max {"\u00B7"} Pass threshold: 80%
           </p>
         </div>
 
@@ -403,11 +410,12 @@ export default function QAForm() {
                     padding: "8px 20px",
                     borderRadius: 20,
                     border: "2px solid",
-                    borderColor: channel === ch ? "#1F5C99" : "#ddd",
-                    background: channel === ch ? "#E8F0FE" : "#fff",
-                    color: channel === ch ? "#1F5C99" : "#888",
+                    borderColor: channel === ch ? COLORS.orange : COLORS.lightGray,
+                    background: channel === ch ? "#FEF3E2" : COLORS.white,
+                    color: channel === ch ? COLORS.orange : COLORS.midGray,
                     fontSize: 14,
                     fontWeight: 600,
+                    fontFamily: FONTS.heading,
                     cursor: "pointer",
                     transition: "all 0.15s",
                   }}
@@ -459,7 +467,7 @@ export default function QAForm() {
               <div>
                 <div style={{ ...styles.scoreNum, color: colors.text }}>{scorePercent}%</div>
                 <div style={styles.scoreSub}>
-                  {totalScore} / 100 pts Â· {answered}/{questions.length} answered
+                  {totalScore} / 100 pts {"\u00B7"} {answered}/{questions.length} answered
                 </div>
               </div>
               <div style={styles.progressTrack}>
@@ -477,7 +485,7 @@ export default function QAForm() {
                 style={{
                   ...styles.scoreBadge,
                   background: colors.border,
-                  color: "#fff",
+                  color: COLORS.white,
                 }}
               >
                 {passFail}
@@ -502,7 +510,7 @@ export default function QAForm() {
                       key={q.field}
                       style={{
                         ...styles.questionRow,
-                        background: isEven ? "#F8FAFD" : "#fff",
+                        background: isEven ? "#FEF9F3" : COLORS.white,
                       }}
                     >
                       <div style={styles.questionNum}>{globalIdx + 1}</div>
@@ -537,19 +545,19 @@ export default function QAForm() {
               style={styles.textarea}
               value={suggestions}
               onChange={(e) => setSuggestions(e.target.value)}
-              placeholder="Optional â specific feedback for the agent..."
+              placeholder="Optional — specific feedback for the agent..."
             />
           </div>
 
           {/* Error */}
-          {error && <div style={styles.errorBox}>â ï¸ {error}</div>}
+          {error && <div style={styles.errorBox}>{"\u26A0\uFE0F"} {error}</div>}
 
           {/* Unanswered warning */}
           {answered < questions.length && answered > 0 && (
             <div
               style={{
-                background: "#FFF8E1",
-                border: "1px solid #FFE082",
+                background: COLORS.warningBg,
+                border: `1px solid ${COLORS.clementine}`,
                 borderRadius: 8,
                 padding: "10px 14px",
                 fontSize: 13,
@@ -563,7 +571,7 @@ export default function QAForm() {
           )}
 
           <button type="submit" style={styles.submitBtn(!allAnswered || submitting)} disabled={!allAnswered || submitting}>
-            {submitting ? "Submittingâ¦" : "Submit Screening to SharePoint"}
+            {submitting ? "Submitting\u2026" : "Submit Screening"}
           </button>
         </form>
       </div>
