@@ -27,4 +27,6 @@ export const loginRequest = {
 export const sharepointConfig = {
     siteUrl: "https://allstardriver.sharepoint.com/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam",
     listName: "QA_SupportPhones",
+    evaluatorAgentsListName: "QA_EvaluatorAgents",
+    assignmentsListName: "QA_Assignments",
 };

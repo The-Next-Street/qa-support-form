@@ -5,6 +5,7 @@ import { msalConfig, loginRequest } from "./authConfig";
 import { COLORS, FONTS, GRADIENT } from "./brand";
 import QAForm from "./components/QAForm";
 import Dashboard from "./components/Dashboard";
+import Assignments from "./components/Assignments";
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -124,6 +125,7 @@ function NavBar({ page, setPage }) {
         </span>
         {[
           { key: "dashboard", label: "Dashboard" },
+          { key: "assignments", label: "Assignments" },
           { key: "form", label: "New Screening" },
         ].map((tab) => (
           <button
@@ -181,7 +183,7 @@ function AppContent() {
     <>
       <AuthenticatedTemplate>
         <NavBar page={page} setPage={setPage} />
-        {page === "dashboard" ? <Dashboard /> : <QAForm />}
+        {page === "dashboard" ? <Dashboard /> : page === "assignments" ? <Assignments /> : <QAForm />}
       </AuthenticatedTemplate>
 
       <UnauthenticatedTemplate>
