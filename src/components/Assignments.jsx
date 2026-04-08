@@ -133,11 +133,17 @@ async function graphPatch(token, path, body) {
 const _listIdCache = {};
 async function getListId(token, displayName) {
   if (_listIdCache[displayName]) return _listIdCache[displayName];
+  // First try exact filter
   const data = await graphFetch(token, `/lists?$filter=displayName eq '${displayName}'`);
   const list = (data.value || [])[0];
-  if (!list) throw new Error(`List "${displayName}" not found on this SharePoint site.`);
-  _listIdCache[displayName] = list.id;
-  return list.id;
+  if (list) {
+    _listIdCache[displayName] = list.id;
+    return list.id;
+  }
+  // Not found — fetch all lists to help debug
+  const allLists = await graphFetch(token, `/lists?$select=displayName,id&$top=100`);
+  const names = (allLists.value || []).map((l) => l.displayName).join(", ");
+  throw new Error(`List "${displayName}" not found. Available lists: ${names}`);
 }
 
 // Resolve SharePoint Person column LookupIds to user details
