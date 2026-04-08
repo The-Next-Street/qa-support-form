@@ -90,9 +90,12 @@ const s = {
 
 // ── Helpers: SharePoint Graph API ───────────────────────────────────────────
 
+const GRAPH_BASE = `https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}`;
+const PREFER_HEADER = "HonorNonIndexedQueriesWarningMayFailRandomly";
+
 async function graphFetch(token, path) {
-  const res = await fetch(`https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}${path}`, {
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+  const res = await fetch(`${GRAPH_BASE}${path}`, {
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: PREFER_HEADER },
   });
   if (!res.ok) {
     const err = await res.text();
@@ -102,9 +105,9 @@ async function graphFetch(token, path) {
 }
 
 async function graphPost(token, path, body) {
-  const res = await fetch(`https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}${path}`, {
+  const res = await fetch(`${GRAPH_BASE}${path}`, {
     method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: PREFER_HEADER },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
@@ -115,15 +118,26 @@ async function graphPost(token, path, body) {
 }
 
 async function graphPatch(token, path, body) {
-  const res = await fetch(`https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}${path}`, {
+  const res = await fetch(`${GRAPH_BASE}${path}`, {
     method: "PATCH",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: PREFER_HEADER },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
     const err = await res.text();
     throw new Error(`Graph PATCH ${res.status}: ${err}`);
   }
+}
+
+// Look up a SharePoint list ID by display name (more reliable than using name in URL)
+const _listIdCache = {};
+async function getListId(token, displayName) {
+  if (_listIdCache[displayName]) return _listIdCache[displayName];
+  const data = await graphFetch(token, `/lists?$filter=displayName eq '${displayName}'`);
+  const list = (data.value || [])[0];
+  if (!list) throw new Error(`List "${displayName}" not found on this SharePoint site.`);
+  _listIdCache[displayName] = list.id;
+  return list.id;
 }
 
 // Resolve SharePoint Person column LookupIds to user details
@@ -148,8 +162,9 @@ async function resolveUsers(token, lookupIds) {
 }
 
 async function fetchEvaluatorAgents(token) {
+  const listId = await getListId(token, sharepointConfig.evaluatorAgentsListName);
   const data = await graphFetch(token,
-    `/lists/${sharepointConfig.evaluatorAgentsListName}/items?$expand=fields&$top=500`
+    `/lists/${listId}/items?$expand=fields&$top=500`
   );
   const items = data.value || [];
 
@@ -182,8 +197,9 @@ async function fetchEvaluatorAgents(token) {
 }
 
 async function fetchAssignments(token, weekOf) {
+  const listId = await getListId(token, sharepointConfig.assignmentsListName);
   const data = await graphFetch(token,
-    `/lists/${sharepointConfig.assignmentsListName}/items?$expand=fields&$top=500&$filter=fields/WeekOf eq '${weekOf}'`
+    `/lists/${listId}/items?$expand=fields&$top=500&$filter=fields/WeekOf eq '${weekOf}'`
   );
   const items = data.value || [];
 
@@ -206,15 +222,17 @@ async function fetchAssignments(token, weekOf) {
 }
 
 async function saveAssignment(token, fields) {
+  const listId = await getListId(token, sharepointConfig.assignmentsListName);
   return graphPost(token,
-    `/lists/${sharepointConfig.assignmentsListName}/items`,
+    `/lists/${listId}/items`,
     { fields }
   );
 }
 
 async function updateStatus(token, itemId, status) {
+  const listId = await getListId(token, sharepointConfig.assignmentsListName);
   return graphPatch(token,
-    `/lists/${sharepointConfig.assignmentsListName}/items/${itemId}/fields`,
+    `/lists/${listId}/items/${itemId}/fields`,
     { Status: status }
   );
 }
