@@ -94,7 +94,10 @@ async function graphFetch(token, path) {
   const res = await fetch(`https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}${path}`, {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
   });
-  if (!res.ok) throw new Error(`Graph ${res.status}`);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Graph ${res.status}: ${err}`);
+  }
   return res.json();
 }
 
@@ -104,7 +107,10 @@ async function graphPost(token, path, body) {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Graph POST ${res.status}`);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Graph POST ${res.status}: ${err}`);
+  }
   return res.json();
 }
 
@@ -114,30 +120,88 @@ async function graphPatch(token, path, body) {
     headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`Graph PATCH ${res.status}`);
+  if (!res.ok) {
+    const err = await res.text();
+    throw new Error(`Graph PATCH ${res.status}: ${err}`);
+  }
+}
+
+// Resolve SharePoint Person column LookupIds to user details
+async function resolveUsers(token, lookupIds) {
+  const userMap = {};
+  for (const id of lookupIds) {
+    if (!id || userMap[id]) continue;
+    try {
+      const user = await graphFetch(token,
+        `/lists('User Information List')/items/${id}?$expand=fields($select=Title,EMail)`
+      );
+      userMap[id] = {
+        name: user.fields?.Title || "",
+        email: user.fields?.EMail || "",
+      };
+    } catch (e) {
+      console.warn(`Could not resolve user lookupId ${id}:`, e.message);
+      userMap[id] = { name: `User #${id}`, email: "" };
+    }
+  }
+  return userMap;
 }
 
 async function fetchEvaluatorAgents(token) {
   const data = await graphFetch(token,
-    `/lists/${sharepointConfig.evaluatorAgentsListName}/items?expand=fields&$top=500`
+    `/lists/${sharepointConfig.evaluatorAgentsListName}/items?$expand=fields&$top=500`
   );
-  return (data.value || []).map((item) => ({
-    id: item.id,
-    evaluatorName: item.fields?.EvaluatorName || "",
-    evaluatorEmail: item.fields?.EvaluatorEmail || "",
-    agentName: item.fields?.AgentName || "",
-    agentCxoneId: item.fields?.AgentCxoneId || null,
-    active: item.fields?.Active !== false,
-  })).filter((r) => r.active && r.agentName);
+  const items = data.value || [];
+
+  // Collect all Person column LookupIds
+  const lookupIds = new Set();
+  items.forEach((item) => {
+    if (item.fields?.EvaluatorLookupId) lookupIds.add(item.fields.EvaluatorLookupId);
+    if (item.fields?.AgentLookupId) lookupIds.add(item.fields.AgentLookupId);
+  });
+
+  // Resolve to names and emails
+  const userMap = await resolveUsers(token, lookupIds);
+
+  return items
+    .map((item) => {
+      const evalId = item.fields?.EvaluatorLookupId;
+      const agentId = item.fields?.AgentLookupId;
+      return {
+        id: item.id,
+        evaluatorName: userMap[evalId]?.name || "",
+        evaluatorEmail: userMap[evalId]?.email || "",
+        evaluatorLookupId: evalId,
+        agentName: userMap[agentId]?.name || "",
+        agentEmail: userMap[agentId]?.email || "",
+        agentLookupId: agentId,
+        active: item.fields?.Active !== false,
+      };
+    })
+    .filter((r) => r.active && r.agentName);
 }
 
 async function fetchAssignments(token, weekOf) {
   const data = await graphFetch(token,
-    `/lists/${sharepointConfig.assignmentsListName}/items?expand=fields&$top=500&$filter=fields/WeekOf eq '${weekOf}'`
+    `/lists/${sharepointConfig.assignmentsListName}/items?$expand=fields&$top=500&$filter=fields/WeekOf eq '${weekOf}'`
   );
-  return (data.value || []).map((item) => ({
+  const items = data.value || [];
+
+  // Resolve Person columns
+  const lookupIds = new Set();
+  items.forEach((item) => {
+    if (item.fields?.EvaluatorLookupId) lookupIds.add(item.fields.EvaluatorLookupId);
+    if (item.fields?.AgentLookupId) lookupIds.add(item.fields.AgentLookupId);
+  });
+  const userMap = await resolveUsers(token, lookupIds);
+
+  return items.map((item) => ({
     id: item.id,
     ...item.fields,
+    // Overlay resolved names so the rest of the component can use them
+    EvaluatorName: userMap[item.fields?.EvaluatorLookupId]?.name || "",
+    EvaluatorEmail: userMap[item.fields?.EvaluatorLookupId]?.email || "",
+    AgentName: userMap[item.fields?.AgentLookupId]?.name || "",
   }));
 }
 
@@ -254,14 +318,22 @@ export default function Assignments() {
       if (result.errors?.length) setGenErrors(result.errors);
 
       // 3. Save each interaction as a row in QA_Assignments
+      //    Use LookupIds for Person columns (Evaluator, Agent)
       const newWeekOf = result.weekOf;
+      // Build a name→lookupId map from config
+      const evalLookup = {};
+      const agentLookup = {};
+      config.forEach((c) => {
+        evalLookup[c.evaluatorName] = c.evaluatorLookupId;
+        agentLookup[c.agentName] = c.agentLookupId;
+      });
+
       for (const assignment of result.assignments) {
         for (const interaction of assignment.interactions) {
           await saveAssignment(token, {
             WeekOf: newWeekOf,
-            EvaluatorName: assignment.evaluatorName,
-            EvaluatorEmail: assignment.evaluatorEmail,
-            AgentName: assignment.agentName,
+            EvaluatorLookupId: evalLookup[assignment.evaluatorName],
+            AgentLookupId: agentLookup[assignment.agentName],
             ContactId: interaction.contactId,
             Channel: interaction.channel,
             InteractionDate: interaction.interactionDate,
@@ -269,7 +341,6 @@ export default function Assignments() {
             SkillName: interaction.skillName,
             Status: "Pending",
             DueDate: dueDate,
-            GeneratedAt: result.generatedAt,
           });
         }
       }

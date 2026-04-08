@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>TNS QA - SharePoint List Setup</title>
+  <script src="https://alcdn.msauth.net/browser/2.38.0/js/msal-browser.min.js"></script>
+  <style>
+    body { font-family: 'Segoe UI', Arial, sans-serif; background: #F9F9F9; margin: 0; padding: 40px 20px; }
+    .card { max-width: 600px; margin: 0 auto; background: #fff; border-radius: 12px; box-shadow: 0 4px 24px rgba(0,0,0,.08); overflow: hidden; }
+    .header { background: linear-gradient(135deg,#F58A21,#E07010); padding: 24px 28px; color: #fff; }
+    .header h1 { margin: 0; font-size: 20px; }
+    .header p { margin: 6px 0 0; font-size: 13px; color: rgba(255,255,255,.8); }
+    .body { padding: 28px; }
+    .btn { display: block; width: 100%; padding: 14px; border: none; border-radius: 8px; font-size: 15px; font-weight: 700; cursor: pointer; margin-bottom: 12px; color: #fff; }
+    .btn-sign-in { background: #262626; }
+    .btn-create { background: linear-gradient(135deg,#F58A21,#E07010); }
+    .btn:disabled { background: #aaa; cursor: not-allowed; }
+    .step { padding: 12px 16px; margin-bottom: 10px; border-radius: 8px; font-size: 14px; }
+    .step.pending { background: #f5f5f5; color: #888; }
+    .step.running { background: #FEF3E2; color: #F58A21; }
+    .step.done { background: #EEF8E5; color: #73BF45; }
+    .step.error { background: #FFEBEE; color: #C62828; }
+    .check { margin-right: 8px; }
+    #log { font-size: 13px; color: #666; margin-top: 16px; max-height: 200px; overflow-y: auto; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <h1>SharePoint List Setup</h1>
+      <p>Creates QA_EvaluatorAgents and QA_Assignments lists</p>
+    </div>
+    <div class="body">
+      <button id="signInBtn" class="btn btn-sign-in" onclick="signIn()">1. Sign in with Microsoft</button>
+      <button id="createBtn" class="btn btn-create" onclick="createLists()" disabled>2. Create SharePoint Lists</button>
+
+      <div id="steps"></div>
+      <div id="log"></div>
+    </div>
+  </div>
+
+<script>
+const TENANT_ID = "0812948c-d8a4-4cd0-914e-59942e064343";
+const CLIENT_ID = "a575587c-9868-4fd7-8268-1556ac6308fb";
+const SITE_PATH = "allstardriver.sharepoint.com:/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam:";
+const GRAPH = "https://graph.microsoft.com/v1.0";
+
+const msalConfig = {
+  auth: { clientId: CLIENT_ID, authority: `https://login.microsoftonline.com/${TENANT_ID}`, redirectUri: window.location.origin },
+  cache: { cacheLocation: "sessionStorage" }
+};
+const msalInstance = new msal.PublicClientApplication(msalConfig);
+let accessToken = null;
+
+function log(msg) { document.getElementById("log").textContent += msg + "\n"; }
+function setStep(id, state, text) {
+  let el = document.getElementById("step-" + id);
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "step-" + id;
+    el.className = "step pending";
+    document.getElementById("steps").appendChild(el);
+  }
+  el.className = "step " + state;
+  const icon = state === "done" ? "\u2705" : state === "error" ? "\u274C" : state === "running" ? "\u23F3" : "\u2B1C";
+  el.innerHTML = `<span class="check">${icon}</span>${text}`;
+}
+
+async function signIn() {
+  try {
+    const res = await msalInstance.loginPopup({ scopes: ["Sites.ReadWrite.All"] });
+    const tokenRes = await msalInstance.acquireTokenSilent({ scopes: ["Sites.ReadWrite.All"], account: res.account });
+    accessToken = tokenRes.accessToken;
+    document.getElementById("signInBtn").textContent = "\u2705 Signed in as " + res.account.name;
+    document.getElementById("signInBtn").disabled = true;
+    document.getElementById("createBtn").disabled = false;
+    log("Signed in successfully.");
+  } catch (e) {
+    log("Sign-in error: " + e.message);
+  }
+}
+
+async function graphPost(path, body) {
+  const res = await fetch(GRAPH + "/sites/" + SITE_PATH + path, {
+    method: "POST",
+    headers: { Authorization: "Bearer " + accessToken, "Content-Type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(JSON.stringify(data.error || data));
+  return data;
+}
+
+async function createList(displayName, columns) {
+  // Create the list
+  const list = await graphPost("/lists", {
+    displayName,
+    list: { template: "genericList" }
+  });
+  log("Created list: " + displayName + " (id: " + list.id + ")");
+
+  // Add columns
+  for (const col of columns) {
+    try {
+      await graphPost("/lists/" + list.id + "/columns", col);
+      log("  + Column: " + col.name);
+    } catch (e) {
+      log("  ! Column " + col.name + ": " + e.message);
+    }
+  }
+  return list;
+}
+
+async function createLists() {
+  document.getElementById("createBtn").disabled = true;
+  document.getElementById("createBtn").textContent = "Creating...";
+
+  // ── List 1: QA_EvaluatorAgents ──
+  try {
+    setStep("list1", "running", "Creating QA_EvaluatorAgents...");
+    await createList("QA_EvaluatorAgents", [
+      { name: "EvaluatorName", text: {}, description: "Evaluator full name" },
+      { name: "EvaluatorEmail", text: {}, description: "Evaluator email address" },
+      { name: "AgentName", text: {}, description: "Agent full name (must match CXone)" },
+      { name: "AgentCxoneId", number: { decimalPlaces: "none" }, description: "CXone agent ID (auto-populated)" },
+      { name: "Active", boolean: { defaultValue: true }, description: "Is this mapping active?" }
+    ]);
+    setStep("list1", "done", "QA_EvaluatorAgents created with 5 columns");
+  } catch (e) {
+    setStep("list1", "error", "QA_EvaluatorAgents failed: " + e.message);
+    log("Error: " + e.message);
+  }
+
+  // ── List 2: QA_Assignments ──
+  try {
+    setStep("list2", "running", "Creating QA_Assignments...");
+    await createList("QA_Assignments", [
+      { name: "WeekOf", dateTime: { format: "dateOnly" }, description: "Monday of the assignment week" },
+      { name: "EvaluatorName", text: {}, description: "Assigned evaluator" },
+      { name: "EvaluatorEmail", text: {}, description: "Evaluator email" },
+      { name: "AgentName", text: {}, description: "Agent being evaluated" },
+      { name: "ContactId", text: {}, description: "CXone contact ID" },
+      { name: "Channel", choice: { choices: ["Phone", "Chat", "Email", "SMS"], displayAs: "dropDownMenu" }, description: "Interaction channel" },
+      { name: "InteractionDate", dateTime: {}, description: "When the interaction occurred" },
+      { name: "Duration", number: { decimalPlaces: "none" }, description: "Duration in seconds" },
+      { name: "SkillName", text: {}, description: "CXone skill name" },
+      { name: "Status", choice: { choices: ["Pending", "Completed"], displayAs: "dropDownMenu", defaultValue: { value: "Pending" } }, description: "Screening status" },
+      { name: "DueDate", dateTime: { format: "dateOnly" }, description: "Screening due date" },
+      { name: "GeneratedAt", dateTime: {}, description: "When this assignment was generated" }
+    ]);
+    setStep("list2", "done", "QA_Assignments created with 12 columns");
+  } catch (e) {
+    setStep("list2", "error", "QA_Assignments failed: " + e.message);
+    log("Error: " + e.message);
+  }
+
+  // Also check if Channel column exists on QA_SupportPhones
+  try {
+    setStep("channel", "running", "Adding Channel column to QA_SupportPhones...");
+    await graphPost("/lists/QA_SupportPhones/columns", {
+      name: "Channel",
+      choice: { choices: ["Phone", "Chat", "Email", "SMS"], displayAs: "dropDownMenu", defaultValue: { value: "Phone" } },
+      description: "Interaction channel"
+    });
+    setStep("channel", "done", "Channel column added to QA_SupportPhones");
+  } catch (e) {
+    if (e.message.includes("already exists") || e.message.includes("duplicate")) {
+      setStep("channel", "done", "Channel column already exists on QA_SupportPhones");
+    } else {
+      setStep("channel", "error", "Channel column on QA_SupportPhones: " + e.message);
+    }
+  }
+
+  setStep("done", "done", "Setup complete! You can close this page.");
+  document.getElementById("createBtn").textContent = "\u2705 Done!";
+}
+</script>
+</body>
+</html>
