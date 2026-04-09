@@ -207,23 +207,9 @@ async function fetchAssignments(token, weekOf) {
   const data = await graphFetch(token,
     `/lists/${listId}/items?$expand=fields&$top=500&$filter=fields/WeekOf eq '${weekOf}'`
   );
-  const items = data.value || [];
-
-  // Resolve Person columns
-  const lookupIds = new Set();
-  items.forEach((item) => {
-    if (item.fields?.EvaluatorLookupId) lookupIds.add(item.fields.EvaluatorLookupId);
-    if (item.fields?.AgentLookupId) lookupIds.add(item.fields.AgentLookupId);
-  });
-  const userMap = await resolveUsers(token, lookupIds);
-
-  return items.map((item) => ({
+  return (data.value || []).map((item) => ({
     id: item.id,
     ...item.fields,
-    // Overlay resolved names so the rest of the component can use them
-    EvaluatorName: userMap[item.fields?.EvaluatorLookupId]?.name || "",
-    EvaluatorEmail: userMap[item.fields?.EvaluatorLookupId]?.email || "",
-    AgentName: userMap[item.fields?.AgentLookupId]?.name || "",
   }));
 }
 
@@ -342,27 +328,20 @@ export default function Assignments() {
       if (result.errors?.length) setGenErrors(result.errors);
 
       // 3. Save each interaction as a row in QA_Assignments
-      //    Use LookupIds for Person columns (Evaluator, Agent)
       const newWeekOf = result.weekOf;
-      // Build a name→lookupId map from config
-      const evalLookup = {};
-      const agentLookup = {};
-      config.forEach((c) => {
-        evalLookup[c.evaluatorName] = c.evaluatorLookupId;
-        agentLookup[c.agentName] = c.agentLookupId;
-      });
 
       for (const assignment of result.assignments) {
         for (const interaction of assignment.interactions) {
           await saveAssignment(token, {
             WeekOf: newWeekOf,
-            EvaluatorLookupId: evalLookup[assignment.evaluatorName],
-            AgentLookupId: agentLookup[assignment.agentName],
-            ContactId: interaction.contactId,
+            EvaluatorName: assignment.evaluatorName,
+            EvaluatorEmail: assignment.evaluatorEmail,
+            AgentName: assignment.agentName,
+            ContactId: String(interaction.contactId),
             Channel: interaction.channel,
             InteractionDate: interaction.interactionDate,
-            Duration: interaction.duration,
-            SkillName: interaction.skillName,
+            Duration: Math.round(interaction.duration),
+            SkillName: interaction.skillName || "",
             Status: "Pending",
             DueDate: dueDate,
           });
