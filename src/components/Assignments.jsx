@@ -365,16 +365,24 @@ export default function Assignments() {
 
       for (const assignment of result.assignments) {
         for (const interaction of assignment.interactions) {
-          await saveAssignment(token, {
-            WeekOf: newWeekOf,
-            Evaluator: assignment.evaluatorName,
-            Agent: assignment.agentName,
-            ContactId: String(interaction.contactId),
-            Channel: interaction.channel,
-            InteractionDate: interaction.interactionDate,
-            Duration: Math.round(interaction.duration),
+          // Format dates as ISO strings for SharePoint
+          const weekDate = newWeekOf ? new Date(newWeekOf + "T00:00:00Z").toISOString() : null;
+          const intDate = interaction.interactionDate
+            ? new Date(interaction.interactionDate).toISOString()
+            : null;
+
+          const fields = {
+            Evaluator: assignment.evaluatorName || "",
+            Agent: assignment.agentName || "",
+            ContactId: String(interaction.contactId || ""),
+            Channel: interaction.channel || "Phone",
+            Duration: Math.round(Number(interaction.duration) || 0),
             SkillName: interaction.skillName || "",
-          });
+          };
+          if (weekDate) fields.WeekOf = weekDate;
+          if (intDate) fields.InteractionDate = intDate;
+
+          await saveAssignment(token, fields);
         }
       }
 
