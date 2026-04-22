@@ -6,6 +6,7 @@ import { COLORS, FONTS, GRADIENT } from "./brand";
 import QAForm from "./components/QAForm";
 import Dashboard from "./components/Dashboard";
 import Assignments from "./components/Assignments";
+import ManagerReview from "./components/ManagerReview";
 
 const msalInstance = new PublicClientApplication(msalConfig);
 
@@ -126,6 +127,7 @@ function NavBar({ page, setPage }) {
         {[
           { key: "dashboard", label: "Dashboard" },
           { key: "assignments", label: "Assignments" },
+          { key: "review", label: "Manager Review" },
           { key: "form", label: "New Screening" },
         ].map((tab) => (
           <button
@@ -200,6 +202,8 @@ function AppContent() {
           <Dashboard />
         ) : page === "assignments" ? (
           <Assignments onScreen={openScreeningFromAssignment} />
+        ) : page === "review" ? (
+          <ManagerReview />
         ) : (
           <QAForm prefill={prefill} onDone={() => { setPrefill(null); setPage("assignments"); }} />
         )}
