@@ -2,7 +2,7 @@
   "name": "qa-support-form",
   "version": "1.0.0",
   "private": true,
-  "homepage": "https://viktoriagoja.github.io/qa-support-form",
+  "homepage": "https://the-next-street.github.io/qa-support-form",
   "dependencies": {
     "@azure/msal-browser": "^3.10.0",
     "@azure/msal-react": "^2.1.0",
