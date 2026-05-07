@@ -396,7 +396,8 @@ export default function QAForm({ prefill, onDone }) {
     };
   }, [answers, questions]);
 
-  const allAnswered = answered === questions.length && agentName.trim() && agentEmail.trim() && evaluatorName.trim();
+  // Agent email is optional (when screening from an assignment we may only have the name from CXone)
+  const allAnswered = answered === questions.length && agentName.trim() && evaluatorName.trim();
   const colors = scoreColor(scorePercent);
 
   async function doSubmission(accessToken) {
@@ -424,19 +425,21 @@ export default function QAForm({ prefill, onDone }) {
       }
     }
 
-    // 3. Send the score email (best-effort)
-    try {
-      await sendScoreEmail(accessToken, {
-        agentName: agentName.trim(),
-        agentEmail: agentEmail.trim(),
-        evaluatorName: evaluatorName.trim(),
-        channel,
-        scorePercent,
-        totalScore,
-        passFail,
-      });
-    } catch (emailErr) {
-      console.warn("Score email could not be sent:", emailErr.message);
+    // 3. Send the score email (best-effort, only if agent email is known)
+    if (agentEmail.trim()) {
+      try {
+        await sendScoreEmail(accessToken, {
+          agentName: agentName.trim(),
+          agentEmail: agentEmail.trim(),
+          evaluatorName: evaluatorName.trim(),
+          channel,
+          scorePercent,
+          totalScore,
+          passFail,
+        });
+      } catch (emailErr) {
+        console.warn("Score email could not be sent:", emailErr.message);
+      }
     }
 
     // 4. If this screening came from an assignment, mark it completed (best-effort)
