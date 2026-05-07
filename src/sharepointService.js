@@ -135,7 +135,11 @@ export async function submitQARecord(accessToken, formData) {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Graph error ${response.status}: ${errorText}`);
+    // Debug: include what column names we detected so we can see the mismatch
+    const detectedKeys = Object.values(normToActual).slice(0, 30).join(", ");
+    throw new Error(
+      `Graph error ${response.status}: ${errorText}\n\nDetected SharePoint columns: ${detectedKeys || "(none)"}`
+    );
   }
 
   const body = await response.json();
