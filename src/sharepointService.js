@@ -1,27 +1,24 @@
 import { sharepointConfig } from "./authConfig";
 
+const GRAPH_SITE =
+  "allstardriver.sharepoint.com:/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam:";
+
 /**
- * Posts a new QA screening record to the SharePoint list.
- * @param {string} accessToken  - Bearer token from MSAL
+ * Posts a new QA screening record to the SharePoint list via Microsoft Graph.
+ * @param {string} accessToken  - Bearer token from MSAL (Sites.ReadWrite.All scope)
  * @param {object} formData     - The form values to save
  */
 export async function submitQARecord(accessToken, formData) {
-  const { siteUrl, listName } = sharepointConfig;
-  const endpoint = `${siteUrl}/_api/web/lists/getbytitle('${encodeURIComponent(listName)}')/items`;
+  const { listName } = sharepointConfig;
 
-  // Build the SharePoint item payload.
-  // Choice field values are sent as plain strings ("Yes" / "No").
-  const payload = {
-    __metadata: { type: "SP.Data.QA_SupportPhonesListItem" },
-
-    // Identification fields
-    AgentName:    formData.AgentName,
-    AgentEmail:   formData.AgentEmail,
+  // Build the field payload (Graph wraps fields in { fields: { ... } })
+  const fields = {
+    AgentName: formData.AgentName,
+    AgentEmail: formData.AgentEmail,
     EvaluatorName: formData.EvaluatorName,
-    Channel:      formData.Channel || "Phone",
+    Channel: formData.Channel || "Phone",
     SubmissionDate: new Date().toISOString(),
 
-    // 20 QA question fields (Choice: Yes / No)
     Q06: formData.Q06,
     Q07: formData.Q07,
     Q08: formData.Q08,
@@ -43,41 +40,38 @@ export async function submitQARecord(accessToken, formData) {
     Q24: formData.Q24,
     Q25: formData.Q25,
 
-    // Calculated score fields
-    TotalScore:   formData.TotalScore,
+    TotalScore: formData.TotalScore,
     ScorePercent: formData.ScorePercent,
-    PassFail:     formData.PassFail,
+    PassFail: formData.PassFail,
 
-    // Open text
     SuggestionsForImprovement: formData.SuggestionsForImprovement || "",
   };
 
-  // Link a screening record back to its source CXone contact (from Assignments flow)
-  if (formData.ContactId) payload.ContactId = String(formData.ContactId);
-  // Actual interaction date from CXone (when coming from an assignment)
+  if (formData.ContactId) fields.ContactId = String(formData.ContactId);
   if (formData.InteractionDate) {
-    payload.InteractionDate = new Date(formData.InteractionDate).toISOString();
+    fields.InteractionDate = new Date(formData.InteractionDate).toISOString();
   }
+
+  const endpoint =
+    `https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}/lists/${encodeURIComponent(listName)}/items`;
 
   const response = await fetch(endpoint, {
     method: "POST",
     headers: {
       Authorization: `Bearer ${accessToken}`,
-      Accept: "application/json;odata=verbose",
-      "Content-Type": "application/json;odata=verbose",
+      "Content-Type": "application/json",
     },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ fields }),
   });
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`SharePoint error ${response.status}: ${errorText}`);
+    throw new Error(`Graph error ${response.status}: ${errorText}`);
   }
 
-  // SharePoint REST API returns { d: { Id, ...fields } } with odata=verbose
+  // Graph returns { id: "<itemId>", fields: { ... } }
   const body = await response.json();
-  const item = body?.d || body;
-  return { ...item, Id: item?.Id || item?.ID };
+  return { ...body.fields, Id: body.id };
 }
 
 /**
