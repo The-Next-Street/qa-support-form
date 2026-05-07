@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef, useCallback } from "react"
 import { useMsal } from "@azure/msal-react";
 import { loginRequest } from "../authConfig";
 import { submitQARecord, sendScoreEmail, uploadAttachments, markAssignmentCompleted } from "../sharepointService";
-import { QA_QUESTIONS_BY_CHANNEL, CHANNELS } from "../questions";
+import { QA_QUESTIONS_BY_CHANNEL, CHANNELS, calculateScore } from "../questions";
 import { COLORS, FONTS, GRADIENT } from "../brand";
 
 // ── Microsoft Graph people search ───────────────────────────────────────────
@@ -239,13 +239,19 @@ const styles = {
     fontFamily: FONTS.body,
     borderColor: variant === "Yes"
       ? (selected ? COLORS.green : "#ccc")
-      : (selected ? COLORS.fail : "#ccc"),
+      : variant === "No"
+        ? (selected ? COLORS.fail : "#ccc")
+        : (selected ? COLORS.midGray : "#ccc"), // N/A
     background: variant === "Yes"
       ? (selected ? COLORS.passBg : COLORS.white)
-      : (selected ? COLORS.failBg : COLORS.white),
+      : variant === "No"
+        ? (selected ? COLORS.failBg : COLORS.white)
+        : (selected ? "#ECEFF1" : COLORS.white), // N/A
     color: variant === "Yes"
       ? (selected ? COLORS.green : "#999")
-      : (selected ? COLORS.fail : "#999"),
+      : variant === "No"
+        ? (selected ? COLORS.fail : "#999")
+        : (selected ? COLORS.gray : "#999"), // N/A
   }),
 
   scoreBar: {
@@ -384,15 +390,16 @@ export default function QAForm({ prefill, onDone }) {
     setAnswers(Object.fromEntries(QA_QUESTIONS_BY_CHANNEL[newChannel].map((q) => [q.field, null])));
   }
 
-  const { totalScore, scorePercent, passFail, answered } = useMemo(() => {
-    const yesCount = questions.filter((q) => answers[q.field] === "Yes").length;
-    const total = yesCount * 5;
-    const pct = total;
+  const { totalScore, scorePercent, passFail, answered, naCount, scoredCount } = useMemo(() => {
+    const { earned, total, percent } = calculateScore(answers, questions);
+    const naCount = questions.filter((q) => answers[q.field] === "N/A").length;
     return {
-      totalScore: total,
-      scorePercent: pct,
-      passFail: pct >= 80 ? "Pass" : "Fail",
+      totalScore: earned,           // # of Yes answers
+      scoredCount: total,           // # of Yes+No (excluding N/A)
+      scorePercent: percent,
+      passFail: percent >= 80 ? "Pass" : "Fail",
       answered: questions.filter((q) => answers[q.field] !== null).length,
+      naCount,
     };
   }, [answers, questions]);
 
@@ -680,7 +687,8 @@ export default function QAForm({ prefill, onDone }) {
               <div>
                 <div style={{ ...styles.scoreNum, color: colors.text }}>{scorePercent}%</div>
                 <div style={styles.scoreSub}>
-                  {totalScore} / 100 pts {"\u00B7"} {answered}/{questions.length} answered
+                  {totalScore} of {scoredCount} scored {"\u00B7"} {answered}/{questions.length} answered
+                  {naCount > 0 ? <> {"\u00B7"} {naCount} N/A excluded</> : null}
                 </div>
               </div>
               <div style={styles.progressTrack}>
@@ -728,9 +736,14 @@ export default function QAForm({ prefill, onDone }) {
                     >
                       <div style={styles.questionNum}>{globalIdx + 1}</div>
                       <div style={{ ...styles.questionText }}>
-                        {q.label}
+                        <div style={{ fontWeight: 600 }}>{q.label}</div>
+                        {q.description && (
+                          <div style={{ fontSize: 12, color: COLORS.midGray, marginTop: 4 }}>
+                            {q.description}
+                          </div>
+                        )}
                         <div style={styles.toggleGroup}>
-                          {["Yes", "No"].map((opt) => (
+                          {["Yes", "No", "N/A"].map((opt) => (
                             <button
                               key={opt}
                               type="button"

@@ -1,4 +1,5 @@
 import { sharepointConfig } from "./authConfig";
+import { FIELD_TO_SP_COLUMN } from "./questions";
 
 const GRAPH_SITE =
   "allstardriver.sharepoint.com:/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam:";
@@ -6,32 +7,71 @@ const GRAPH_SITE =
 // Cache of detected internal column names per list (avoids re-fetching schema every submit)
 const _columnNameCache = {};
 
+// Normalize a field name for matching: lowercase, strip non-alphanumerics
+function _norm(name) {
+  return String(name).toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
 /**
- * Discover internal column names by fetching the most-recent item from the list.
- * Returns a map of "expected-name" → "actual-internal-name".
- * If no items exist, returns an empty map and Graph will use the names we send.
+ * Discover internal column names by querying the list's column schema.
+ * Returns a map of "normalized-name" → "actual-internal-name".
  */
 async function detectColumnNames(accessToken, listName) {
   if (_columnNameCache[listName]) return _columnNameCache[listName];
 
-  const endpoint =
-    `https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}/lists/${encodeURIComponent(listName)}/items` +
-    `?$expand=fields&$top=1`;
-  const res = await fetch(endpoint, {
-    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-  });
-  if (!res.ok) return {};
-  const body = await res.json();
-  const sample = body?.value?.[0]?.fields || {};
-  const fieldNames = Object.keys(sample).filter((k) => !k.startsWith("@") && !k.startsWith("_"));
-
-  // Build a case-insensitive map: lowercased-name → actual-name
-  const lowerToActual = {};
-  for (const name of fieldNames) {
-    lowerToActual[name.toLowerCase()] = name;
+  // Prefer the columns endpoint (works even when the list is empty)
+  let actualNames = [];
+  const colsEndpoint =
+    `https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}/lists/${encodeURIComponent(listName)}/columns?$select=name,displayName,readOnly`;
+  try {
+    const res = await fetch(colsEndpoint, {
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+    });
+    if (res.ok) {
+      const body = await res.json();
+      // Each column has both `name` (internal) and `displayName`. Use both as keys.
+      for (const col of body.value || []) {
+        if (col.readOnly) continue;
+        if (col.name) actualNames.push({ key: col.name, internal: col.name });
+        if (col.displayName && col.displayName !== col.name) {
+          actualNames.push({ key: col.displayName, internal: col.name });
+        }
+      }
+    }
+  } catch (_) {
+    // fall through to item-based detection
   }
-  _columnNameCache[listName] = lowerToActual;
-  return lowerToActual;
+
+  // Also try item-based detection as a fallback / supplement
+  if (actualNames.length === 0) {
+    try {
+      const itemsEndpoint =
+        `https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}/lists/${encodeURIComponent(listName)}/items` +
+        `?$expand=fields&$top=1`;
+      const res = await fetch(itemsEndpoint, {
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      });
+      if (res.ok) {
+        const body = await res.json();
+        const sample = body?.value?.[0]?.fields || {};
+        for (const k of Object.keys(sample)) {
+          if (k.startsWith("@") || k.startsWith("_")) continue;
+          actualNames.push({ key: k, internal: k });
+        }
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  // Build normalized-name → actual-internal-name map
+  const normToActual = {};
+  for (const { key, internal } of actualNames) {
+    const n = _norm(key);
+    if (!normToActual[n]) normToActual[n] = internal;
+  }
+  _columnNameCache[listName] = normToActual;
+  return normToActual;
 }
 
 /**
@@ -42,18 +82,14 @@ async function detectColumnNames(accessToken, listName) {
 export async function submitQARecord(accessToken, formData) {
   const { listName } = sharepointConfig;
 
-  // Build the desired payload — these are the names we WANT to send
+  // Build the desired payload — start with the always-present meta fields,
+  // then add each QA question using its SharePoint column name from the map.
   const desired = {
     AgentName: formData.AgentName,
     AgentEmail: formData.AgentEmail,
     EvaluatorName: formData.EvaluatorName,
     Channel: formData.Channel || "Phone",
     SubmissionDate: new Date().toISOString(),
-
-    Q06: formData.Q06, Q07: formData.Q07, Q08: formData.Q08, Q09: formData.Q09, Q10: formData.Q10,
-    Q11: formData.Q11, Q12: formData.Q12, Q13: formData.Q13, Q14: formData.Q14, Q15: formData.Q15,
-    Q16: formData.Q16, Q17: formData.Q17, Q18: formData.Q18, Q19: formData.Q19, Q20: formData.Q20,
-    Q21: formData.Q21, Q22: formData.Q22, Q23: formData.Q23, Q24: formData.Q24, Q25: formData.Q25,
 
     TotalScore: formData.TotalScore,
     ScorePercent: formData.ScorePercent,
@@ -62,17 +98,26 @@ export async function submitQARecord(accessToken, formData) {
     SuggestionsForImprovement: formData.SuggestionsForImprovement || "",
   };
 
+  // Add each QA question answer under its SharePoint column display name
+  for (const [reactField, spColumnName] of Object.entries(FIELD_TO_SP_COLUMN)) {
+    if (formData[reactField] !== undefined && formData[reactField] !== null) {
+      desired[spColumnName] = formData[reactField];
+    }
+  }
+
   if (formData.ContactId) desired.ContactId = String(formData.ContactId);
   if (formData.InteractionDate) {
     desired.InteractionDate = new Date(formData.InteractionDate).toISOString();
   }
 
-  // Map "desired" names to the actual internal names that exist on the list
-  const lowerToActual = await detectColumnNames(accessToken, listName);
+  // Map "desired" names to the actual internal names that exist on the list.
+  // Match case-insensitively after stripping non-alphanumerics so
+  // "Active Listening" matches "ActiveListening" or "Active_x0020_Listening".
+  const normToActual = await detectColumnNames(accessToken, listName);
   const fields = {};
   for (const [key, value] of Object.entries(desired)) {
     if (value === undefined || value === null) continue;
-    const actual = lowerToActual[key.toLowerCase()] || key;
+    const actual = normToActual[_norm(key)] || key;
     fields[actual] = value;
   }
 
