@@ -3,6 +3,37 @@ import { sharepointConfig } from "./authConfig";
 const GRAPH_SITE =
   "allstardriver.sharepoint.com:/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam:";
 
+// Cache of detected internal column names per list (avoids re-fetching schema every submit)
+const _columnNameCache = {};
+
+/**
+ * Discover internal column names by fetching the most-recent item from the list.
+ * Returns a map of "expected-name" → "actual-internal-name".
+ * If no items exist, returns an empty map and Graph will use the names we send.
+ */
+async function detectColumnNames(accessToken, listName) {
+  if (_columnNameCache[listName]) return _columnNameCache[listName];
+
+  const endpoint =
+    `https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}/lists/${encodeURIComponent(listName)}/items` +
+    `?$expand=fields&$top=1`;
+  const res = await fetch(endpoint, {
+    headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+  });
+  if (!res.ok) return {};
+  const body = await res.json();
+  const sample = body?.value?.[0]?.fields || {};
+  const fieldNames = Object.keys(sample).filter((k) => !k.startsWith("@") && !k.startsWith("_"));
+
+  // Build a case-insensitive map: lowercased-name → actual-name
+  const lowerToActual = {};
+  for (const name of fieldNames) {
+    lowerToActual[name.toLowerCase()] = name;
+  }
+  _columnNameCache[listName] = lowerToActual;
+  return lowerToActual;
+}
+
 /**
  * Posts a new QA screening record to the SharePoint list via Microsoft Graph.
  * @param {string} accessToken  - Bearer token from MSAL (Sites.ReadWrite.All scope)
@@ -11,34 +42,18 @@ const GRAPH_SITE =
 export async function submitQARecord(accessToken, formData) {
   const { listName } = sharepointConfig;
 
-  // Build the field payload (Graph wraps fields in { fields: { ... } })
-  const fields = {
+  // Build the desired payload — these are the names we WANT to send
+  const desired = {
     AgentName: formData.AgentName,
     AgentEmail: formData.AgentEmail,
     EvaluatorName: formData.EvaluatorName,
     Channel: formData.Channel || "Phone",
     SubmissionDate: new Date().toISOString(),
 
-    Q06: formData.Q06,
-    Q07: formData.Q07,
-    Q08: formData.Q08,
-    Q09: formData.Q09,
-    Q10: formData.Q10,
-    Q11: formData.Q11,
-    Q12: formData.Q12,
-    Q13: formData.Q13,
-    Q14: formData.Q14,
-    Q15: formData.Q15,
-    Q16: formData.Q16,
-    Q17: formData.Q17,
-    Q18: formData.Q18,
-    Q19: formData.Q19,
-    Q20: formData.Q20,
-    Q21: formData.Q21,
-    Q22: formData.Q22,
-    Q23: formData.Q23,
-    Q24: formData.Q24,
-    Q25: formData.Q25,
+    Q06: formData.Q06, Q07: formData.Q07, Q08: formData.Q08, Q09: formData.Q09, Q10: formData.Q10,
+    Q11: formData.Q11, Q12: formData.Q12, Q13: formData.Q13, Q14: formData.Q14, Q15: formData.Q15,
+    Q16: formData.Q16, Q17: formData.Q17, Q18: formData.Q18, Q19: formData.Q19, Q20: formData.Q20,
+    Q21: formData.Q21, Q22: formData.Q22, Q23: formData.Q23, Q24: formData.Q24, Q25: formData.Q25,
 
     TotalScore: formData.TotalScore,
     ScorePercent: formData.ScorePercent,
@@ -47,9 +62,18 @@ export async function submitQARecord(accessToken, formData) {
     SuggestionsForImprovement: formData.SuggestionsForImprovement || "",
   };
 
-  if (formData.ContactId) fields.ContactId = String(formData.ContactId);
+  if (formData.ContactId) desired.ContactId = String(formData.ContactId);
   if (formData.InteractionDate) {
-    fields.InteractionDate = new Date(formData.InteractionDate).toISOString();
+    desired.InteractionDate = new Date(formData.InteractionDate).toISOString();
+  }
+
+  // Map "desired" names to the actual internal names that exist on the list
+  const lowerToActual = await detectColumnNames(accessToken, listName);
+  const fields = {};
+  for (const [key, value] of Object.entries(desired)) {
+    if (value === undefined || value === null) continue;
+    const actual = lowerToActual[key.toLowerCase()] || key;
+    fields[actual] = value;
   }
 
   const endpoint =
@@ -69,7 +93,6 @@ export async function submitQARecord(accessToken, formData) {
     throw new Error(`Graph error ${response.status}: ${errorText}`);
   }
 
-  // Graph returns { id: "<itemId>", fields: { ... } }
   const body = await response.json();
   return { ...body.fields, Id: body.id };
 }
