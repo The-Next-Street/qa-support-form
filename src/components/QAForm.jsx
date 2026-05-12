@@ -5,7 +5,157 @@ import { submitQARecord, sendScoreEmail, uploadAttachments, markAssignmentComple
 import { QA_QUESTIONS_BY_CHANNEL, CHANNELS, calculateScore } from "../questions";
 import { COLORS, FONTS, GRADIENT } from "../brand";
 
-// ── Microsoft Graph people search ───────────────────────────────────────────
+// ── CXone agent roster ─────────────────────────────────────────────────────
+
+const BACKEND_URL = "https://cxone-faq-bot-1.onrender.com";
+const BOT_API_KEY = "tns-bot-secret-2024";
+
+let _agentRosterCache = null;
+let _agentRosterPromise = null;
+
+async function fetchAgentRoster() {
+  if (_agentRosterCache) return _agentRosterCache;
+  if (_agentRosterPromise) return _agentRosterPromise;
+  _agentRosterPromise = (async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/metrics/agents`, {
+        headers: { "X-API-Key": BOT_API_KEY },
+      });
+      if (!res.ok) return [];
+      const data = await res.json();
+      _agentRosterCache = data.agents || [];
+      return _agentRosterCache;
+    } catch {
+      return [];
+    } finally {
+      _agentRosterPromise = null;
+    }
+  })();
+  return _agentRosterPromise;
+}
+
+// Dropdown specifically for CXone agents (limits to the active roster).
+function AgentTypeAhead({ value, email, onChange, onSelect, placeholder, label }) {
+  const [roster, setRoster] = useState([]);
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const wrapperRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    fetchAgentRoster().then((list) => {
+      if (!cancelled) {
+        setRoster(list);
+        setLoading(false);
+      }
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // Filter roster by current query (case-insensitive, substring match)
+  const suggestions = useMemo(() => {
+    const q = (value || "").trim().toLowerCase();
+    if (!q) return roster.slice(0, 50);
+    return roster.filter((a) => a.name.toLowerCase().includes(q)).slice(0, 50);
+  }, [value, roster]);
+
+  function handleChange(e) {
+    const val = e.target.value;
+    onChange(val, "");
+    setShowDropdown(true);
+  }
+  function handleSelect(agent) {
+    onSelect(agent.name, agent.email || "");
+    setShowDropdown(false);
+  }
+
+  useEffect(() => {
+    function handleClick(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
+        setShowDropdown(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
+
+  return (
+    <div ref={wrapperRef} style={{ position: "relative" }}>
+      <label style={{ fontSize: 13, fontWeight: 600, color: COLORS.gray, marginBottom: 6, display: "block" }}>
+        {label}
+      </label>
+      <input
+        style={{
+          padding: "10px 12px",
+          border: `1.5px solid ${COLORS.lightGray}`,
+          borderRadius: 8,
+          fontSize: 14,
+          outline: "none",
+          fontFamily: FONTS.body,
+          width: "100%",
+          boxSizing: "border-box",
+        }}
+        value={value}
+        onChange={handleChange}
+        onFocus={() => setShowDropdown(true)}
+        placeholder={placeholder || (loading ? "Loading agents..." : "Type to filter agents...")}
+        autoComplete="off"
+      />
+      {email && (
+        <div style={{ fontSize: 11, color: COLORS.midGray, marginTop: 3 }}>{email}</div>
+      )}
+      {showDropdown && (
+        <div
+          style={{
+            position: "absolute",
+            top: "100%",
+            left: 0,
+            right: 0,
+            background: COLORS.white,
+            border: `1.5px solid ${COLORS.lightGray}`,
+            borderRadius: 8,
+            boxShadow: "0 4px 16px rgba(0,0,0,0.12)",
+            zIndex: 100,
+            maxHeight: 280,
+            overflowY: "auto",
+            marginTop: 4,
+          }}
+        >
+          {loading && (
+            <div style={{ padding: "10px 14px", fontSize: 13, color: COLORS.midGray }}>Loading agents…</div>
+          )}
+          {!loading && suggestions.length === 0 && (
+            <div style={{ padding: "10px 14px", fontSize: 13, color: COLORS.midGray }}>
+              No matching agents in CXone.
+            </div>
+          )}
+          {suggestions.map((agent) => (
+            <div
+              key={agent.agentId || agent.name}
+              onClick={() => handleSelect(agent)}
+              style={{
+                padding: "10px 14px",
+                cursor: "pointer",
+                fontSize: 14,
+                borderBottom: `1px solid ${COLORS.offWhite}`,
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#FEF3E2")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = COLORS.white)}
+            >
+              <div style={{ fontWeight: 600, color: COLORS.gray }}>{agent.name}</div>
+              {agent.email && (
+                <div style={{ fontSize: 12, color: COLORS.midGray, marginTop: 2 }}>{agent.email}</div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Microsoft Graph people search (used for Evaluator field) ────────────────
 
 async function searchPeople(accessToken, query) {
   if (!query || query.length < 2) return [];
@@ -660,14 +810,13 @@ export default function QAForm({ prefill, onDone }) {
           {/* Agent / Evaluator */}
           <div style={styles.row}>
             <div style={{ ...styles.col, flex: 2 }}>
-              <UserTypeAhead
+              <AgentTypeAhead
                 label="Agent Name *"
                 value={agentName}
                 email={agentEmail}
                 onChange={(name, email) => { setAgentName(name); setAgentEmail(email); }}
                 onSelect={(name, email) => { setAgentName(name); setAgentEmail(email); }}
-                placeholder="Start typing agent name..."
-                accessToken={accessToken}
+                placeholder="Type to filter CXone agents..."
               />
             </div>
             <div style={styles.col}>
