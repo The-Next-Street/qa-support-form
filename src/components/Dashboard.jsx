@@ -221,7 +221,7 @@ function isoDate(d) {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function Dashboard() {
+export default function Dashboard({ refreshKey = 0 }) {
   const { instance, accounts } = useMsal();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -262,7 +262,7 @@ export default function Dashboard() {
       }
     }
     load();
-  }, [instance, accounts]);
+  }, [instance, accounts, refreshKey]);
 
   // Load agent metrics when range changes
   useEffect(() => {

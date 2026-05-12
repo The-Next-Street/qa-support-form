@@ -3,9 +3,13 @@ import { useMsal } from "@azure/msal-react";
 import { loginRequest, sharepointConfig } from "../authConfig";
 import { COLORS, FONTS, GRADIENT } from "../brand";
 
-const FLAG_THRESHOLD = 60; // Agents with avg below this are flagged for manager review
+const DEFAULT_FLAG_THRESHOLD = 60; // Agents with avg below this are flagged for manager review
 const GRAPH_SITE =
   "allstardriver.sharepoint.com:/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam:";
+
+function isoDate(d) {
+  return d.toISOString().split("T")[0];
+}
 
 // ── Data fetch (mirrors Dashboard) ─────────────────────────────────────────
 
@@ -163,12 +167,19 @@ const s = {
 
 // ── Component ──────────────────────────────────────────────────────────────
 
-export default function ManagerReview() {
+export default function ManagerReview({ refreshKey = 0 }) {
   const { instance, accounts } = useMsal();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [expanded, setExpanded] = useState({});
+  const [threshold, setThreshold] = useState(DEFAULT_FLAG_THRESHOLD);
+  const [dateRange, setDateRange] = useState(() => {
+    // Default: all-time (today minus a year)
+    const end = new Date();
+    const start = new Date(end.getTime() - 365 * 24 * 3600 * 1000);
+    return { start: isoDate(start), end: isoDate(end) };
+  });
 
   useEffect(() => {
     async function load() {
@@ -188,12 +199,22 @@ export default function ManagerReview() {
       }
     }
     load();
-  }, [instance, accounts]);
+  }, [instance, accounts, refreshKey]);
+
+  // Filter records to the selected date range
+  const filteredRecords = useMemo(() => {
+    const startMs = new Date(dateRange.start).getTime();
+    const endMs = new Date(dateRange.end).getTime() + 24 * 3600 * 1000;
+    return records.filter((r) => {
+      const t = r.date?.getTime() || 0;
+      return t >= startMs && t <= endMs;
+    });
+  }, [records, dateRange.start, dateRange.end]);
 
   // Group by agent and compute averages
   const agentSummaries = useMemo(() => {
     const byAgent = {};
-    records.forEach((r) => {
+    filteredRecords.forEach((r) => {
       if (!byAgent[r.agentName]) {
         byAgent[r.agentName] = {
           agentName: r.agentName,
@@ -213,7 +234,7 @@ export default function ManagerReview() {
       count: a.screenings.length,
       avgScore: a.screenings.length > 0 ? Math.round(a.totalScore / a.screenings.length) : 0,
       passRate: a.screenings.length > 0 ? Math.round((a.passCount / a.screenings.length) * 100) : 0,
-      flagged: a.screenings.length > 0 && a.totalScore / a.screenings.length < FLAG_THRESHOLD,
+      flagged: a.screenings.length > 0 && a.totalScore / a.screenings.length < threshold,
       // Sort screenings newest first within an agent
       screenings: [...a.screenings].sort((x, y) => (y.date?.getTime() || 0) - (x.date?.getTime() || 0)),
     }));
@@ -224,7 +245,7 @@ export default function ManagerReview() {
       return b.avgScore - a.avgScore;                 // highest first when OK
     });
     return summaries;
-  }, [records]);
+  }, [filteredRecords, threshold]);
 
   const flagged = agentSummaries.filter((a) => a.flagged);
   const okAgents = agentSummaries.filter((a) => !a.flagged);
@@ -255,11 +276,55 @@ export default function ManagerReview() {
         <div style={s.header}>
           <h1 style={s.headerTitle}>Manager Review</h1>
           <p style={s.headerSub}>
-            Agents with an average QA score below {FLAG_THRESHOLD}% are flagged for coaching review
+            Agents with an average QA score below {threshold}% are flagged for coaching review
           </p>
         </div>
 
         <div style={s.body}>
+          {/* Controls: date range + threshold */}
+          {!loading && !error && records.length > 0 && (
+            <div style={{
+              display: "flex", gap: 24, alignItems: "center", flexWrap: "wrap",
+              marginBottom: 20, padding: "12px 16px",
+              background: COLORS.offWhite, borderRadius: 8,
+            }}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 13 }}>
+                <span style={{ color: COLORS.midGray, fontWeight: 600 }}>From</span>
+                <input
+                  type="date"
+                  value={dateRange.start}
+                  onChange={(e) => setDateRange((r) => ({ ...r, start: e.target.value }))}
+                  style={{ padding: "6px 10px", border: `1.5px solid ${COLORS.lightGray}`, borderRadius: 6, fontFamily: FONTS.body, fontSize: 13 }}
+                />
+                <span style={{ color: COLORS.midGray, fontWeight: 600 }}>To</span>
+                <input
+                  type="date"
+                  value={dateRange.end}
+                  onChange={(e) => setDateRange((r) => ({ ...r, end: e.target.value }))}
+                  style={{ padding: "6px 10px", border: `1.5px solid ${COLORS.lightGray}`, borderRadius: 6, fontFamily: FONTS.body, fontSize: 13 }}
+                />
+              </div>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", fontSize: 13 }}>
+                <span style={{ color: COLORS.midGray, fontWeight: 600 }}>Flag threshold</span>
+                <input
+                  type="range"
+                  min={30}
+                  max={95}
+                  step={5}
+                  value={threshold}
+                  onChange={(e) => setThreshold(Number(e.target.value))}
+                  style={{ width: 140 }}
+                />
+                <span style={{
+                  fontWeight: 700, color: COLORS.fail, fontFamily: FONTS.heading,
+                  background: COLORS.failBg, padding: "2px 10px", borderRadius: 6, minWidth: 50, textAlign: "center",
+                }}>
+                  &lt; {threshold}%
+                </span>
+              </div>
+            </div>
+          )}
+
           {loading ? (
             <div style={s.center}>
               <p>Loading screenings...</p>
@@ -272,6 +337,13 @@ export default function ManagerReview() {
                 No screenings yet
               </p>
               <p>There are no QA screenings to review.</p>
+            </div>
+          ) : filteredRecords.length === 0 ? (
+            <div style={s.center}>
+              <p style={{ fontSize: 18, fontFamily: FONTS.heading, color: COLORS.gray }}>
+                No screenings in this date range
+              </p>
+              <p>Widen the date range to see more.</p>
             </div>
           ) : (
             <>
@@ -302,11 +374,11 @@ export default function ManagerReview() {
               {/* Banner */}
               {flagged.length > 0 ? (
                 <div style={s.flaggedBanner}>
-                  {"\u26A0"} {flagged.length} agent{flagged.length > 1 ? "s" : ""} below {FLAG_THRESHOLD}% {"\u2014"} coaching recommended
+                  {"\u26A0"} {flagged.length} agent{flagged.length > 1 ? "s" : ""} below {threshold}% {"\u2014"} coaching recommended
                 </div>
               ) : (
                 <div style={s.okBanner}>
-                  {"\u2714"} All agents are averaging at or above {FLAG_THRESHOLD}%
+                  {"\u2714"} All agents are averaging at or above {threshold}%
                 </div>
               )}
 
@@ -324,6 +396,7 @@ export default function ManagerReview() {
                       expanded={!!expanded[agent.agentName]}
                       onToggle={() => toggle(agent.agentName)}
                       formatDate={formatDate}
+                      threshold={threshold}
                     />
                   ))}
                 </>
@@ -343,6 +416,7 @@ export default function ManagerReview() {
                       expanded={!!expanded[agent.agentName]}
                       onToggle={() => toggle(agent.agentName)}
                       formatDate={formatDate}
+                      threshold={threshold}
                     />
                   ))}
                 </>
@@ -355,7 +429,7 @@ export default function ManagerReview() {
   );
 }
 
-function AgentBlock({ agent, expanded, onToggle, formatDate }) {
+function AgentBlock({ agent, expanded, onToggle, formatDate, threshold = DEFAULT_FLAG_THRESHOLD }) {
   return (
     <div style={s.agentCard(agent.flagged)}>
       <div style={s.agentHeader(agent.flagged)} onClick={onToggle}>
@@ -398,7 +472,7 @@ function AgentBlock({ agent, expanded, onToggle, formatDate }) {
                     ...s.td,
                     textAlign: "right",
                     fontWeight: 700,
-                    color: r.scorePercent >= 80 ? COLORS.green : r.scorePercent < FLAG_THRESHOLD ? COLORS.fail : COLORS.orange,
+                    color: r.scorePercent >= 80 ? COLORS.green : r.scorePercent < threshold ? COLORS.fail : COLORS.orange,
                   }}>
                     {r.scorePercent}%
                   </td>

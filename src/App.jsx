@@ -182,6 +182,8 @@ function AppContent() {
   const [page, setPage] = useState("dashboard");
   // prefill holds data passed from Assignments → QAForm (and the assignment id to mark completed)
   const [prefill, setPrefill] = useState(null);
+  // bumped after a screening submit so Assignments / Dashboard re-fetch
+  const [refreshKey, setRefreshKey] = useState(0);
 
   function openScreeningFromAssignment(data) {
     setPrefill(data);
@@ -194,18 +196,24 @@ function AppContent() {
     setPage(newPage);
   }
 
+  function handleScreeningSubmitted() {
+    setPrefill(null);
+    setRefreshKey((k) => k + 1);
+    setPage("assignments");
+  }
+
   return (
     <>
       <AuthenticatedTemplate>
         <NavBar page={page} setPage={handleTabChange} />
         {page === "dashboard" ? (
-          <Dashboard />
+          <Dashboard refreshKey={refreshKey} />
         ) : page === "assignments" ? (
-          <Assignments onScreen={openScreeningFromAssignment} />
+          <Assignments onScreen={openScreeningFromAssignment} refreshKey={refreshKey} />
         ) : page === "review" ? (
-          <ManagerReview />
+          <ManagerReview refreshKey={refreshKey} />
         ) : (
-          <QAForm prefill={prefill} onDone={() => { setPrefill(null); setPage("assignments"); }} />
+          <QAForm prefill={prefill} onDone={handleScreeningSubmitted} />
         )}
       </AuthenticatedTemplate>
 

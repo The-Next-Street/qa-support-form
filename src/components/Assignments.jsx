@@ -296,6 +296,20 @@ async function updateStatus(token, itemId, status) {
   );
 }
 
+async function deleteAssignmentItem(token, itemId) {
+  const listId = await getListId(token, sharepointConfig.assignmentsListName);
+  const res = await fetch(
+    `${GRAPH_BASE}/lists/${listId}/items/${itemId}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+    }
+  );
+  if (!res.ok && res.status !== 204) {
+    throw new Error(`Delete failed (${res.status})`);
+  }
+}
+
 // ── Helper: get Monday of the week ─────────────────────────────────────────
 
 function getMonday(date = new Date()) {
@@ -313,7 +327,7 @@ function getNextMonday() {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function Assignments({ onScreen }) {
+export default function Assignments({ onScreen, refreshKey = 0 }) {
   const { instance, accounts } = useMsal();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -359,7 +373,7 @@ export default function Assignments({ onScreen }) {
       }
     }
     load();
-  }, [weekOf, getToken]);
+  }, [weekOf, getToken, refreshKey]);
 
   // Generate assignments
   async function handleGenerate() {
@@ -456,6 +470,20 @@ export default function Assignments({ onScreen }) {
       );
     } catch (err) {
       console.warn("Failed to update status:", err);
+    }
+  }
+
+  async function deleteAssignment(item) {
+    const confirmed = window.confirm(
+      `Delete this assignment for ${item.Agent || "unknown agent"}?\n\nContact ID: ${item.ContactId || "-"}\n\nThis cannot be undone.`
+    );
+    if (!confirmed) return;
+    try {
+      const token = await getToken();
+      await deleteAssignmentItem(token, item.id);
+      setAssignments((prev) => prev.filter((a) => a.id !== item.id));
+    } catch (err) {
+      setError(`Could not delete: ${err.message}`);
     }
   }
 
@@ -677,7 +705,6 @@ export default function Assignments({ onScreen }) {
                                 </>
                               )}
                               <th style={{ ...s.th, textAlign: "center" }}>Action</th>
-                              <th style={{ ...s.th, textAlign: "center" }}>Done</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -711,31 +738,57 @@ export default function Assignments({ onScreen }) {
                                   </>
                                 )}
                                 <td style={{ ...s.td, textAlign: "center" }}>
+                                  {item.Status === "Completed" ? (
+                                    <button
+                                      type="button"
+                                      style={{
+                                        ...s.screenBtn,
+                                        background: COLORS.white,
+                                        color: COLORS.gray,
+                                        border: `1.5px solid ${COLORS.lightGray}`,
+                                      }}
+                                      onClick={() => toggleStatus(item)}
+                                      title="Re-open this assignment (move back to Pending)"
+                                    >
+                                      Re-open
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      style={s.screenBtn}
+                                      onClick={() =>
+                                        onScreen && onScreen({
+                                          assignmentId: item.id,
+                                          agentName: item.Agent || agentName,
+                                          channel: item.Channel,
+                                          contactId: item.ContactId,
+                                          skillName: item.SkillName,
+                                          interactionDate: item.InteractionDate,
+                                        })
+                                      }
+                                    >
+                                      Screen
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
-                                    style={s.screenBtn}
-                                    disabled={item.Status === "Completed"}
-                                    onClick={() =>
-                                      onScreen && onScreen({
-                                        assignmentId: item.id,
-                                        agentName: item.Agent || agentName,
-                                        channel: item.Channel,
-                                        contactId: item.ContactId,
-                                        skillName: item.SkillName,
-                                        interactionDate: item.InteractionDate,
-                                      })
-                                    }
+                                    onClick={() => deleteAssignment(item)}
+                                    title="Delete this assignment"
+                                    style={{
+                                      marginLeft: 8,
+                                      padding: "6px 8px",
+                                      background: "transparent",
+                                      border: "none",
+                                      cursor: "pointer",
+                                      color: COLORS.midGray,
+                                      fontSize: 14,
+                                      lineHeight: 1,
+                                    }}
+                                    onMouseEnter={(e) => (e.currentTarget.style.color = COLORS.fail)}
+                                    onMouseLeave={(e) => (e.currentTarget.style.color = COLORS.midGray)}
                                   >
-                                    {item.Status === "Completed" ? "Screened" : "Screen"}
+                                    🗑
                                   </button>
-                                </td>
-                                <td style={{ ...s.td, textAlign: "center" }}>
-                                  <input
-                                    type="checkbox"
-                                    checked={item.Status === "Completed"}
-                                    onChange={() => toggleStatus(item)}
-                                    style={s.statusCheck}
-                                  />
                                 </td>
                               </tr>
                               );
