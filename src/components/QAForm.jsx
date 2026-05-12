@@ -14,7 +14,8 @@ let _agentRosterCache = null;
 let _agentRosterPromise = null;
 
 async function fetchAgentRoster() {
-  if (_agentRosterCache) return _agentRosterCache;
+  // Only return cache if we actually got a non-empty result
+  if (_agentRosterCache && _agentRosterCache.length > 0) return _agentRosterCache;
   if (_agentRosterPromise) return _agentRosterPromise;
   _agentRosterPromise = (async () => {
     try {
@@ -23,8 +24,10 @@ async function fetchAgentRoster() {
       });
       if (!res.ok) return [];
       const data = await res.json();
-      _agentRosterCache = data.agents || [];
-      return _agentRosterCache;
+      const list = data.agents || [];
+      // Only cache non-empty results so a failed fetch doesn't lock in an empty list
+      if (list.length > 0) _agentRosterCache = list;
+      return list;
     } catch {
       return [];
     } finally {
@@ -739,7 +742,7 @@ export default function QAForm({ prefill, onDone }) {
         <div style={styles.header}>
           <h1 style={styles.headerTitle}>Support Quality Assurance</h1>
           <p style={styles.headerSub}>
-            {channel} {"\u00B7"} 20 criteria {"\u00B7"} 5 points each {"\u00B7"} 100 points max {"\u00B7"} Pass threshold: 80%
+            {channel} {"\u00B7"} 20 criteria {"\u00B7"} Yes / No / N/A {"\u00B7"} N/A excluded from score {"\u00B7"} Pass threshold: 80%
           </p>
         </div>
 
