@@ -82,11 +82,13 @@ async function detectColumnNames(accessToken, listName) {
 export async function submitQARecord(accessToken, formData) {
   const { listName } = sharepointConfig;
 
-  // Build the desired payload — start with the always-present meta fields,
-  // then add each QA question using its SharePoint column name from the map.
+  // Build the desired payload — use the SharePoint column names that exist on
+  // the Support Quality Assurance list. Auto-detect handles aliasing.
   const desired = {
-    AgentName: formData.AgentName,
+    Agent: formData.AgentName,           // SharePoint column is "Agent"
+    AgentName: formData.AgentName,        // also send under AgentName in case the column is named that
     AgentEmail: formData.AgentEmail,
+    Evaluator: formData.EvaluatorName,    // SharePoint column may be "Evaluator"
     EvaluatorName: formData.EvaluatorName,
     Channel: formData.Channel || "Phone",
     SubmissionDate: new Date().toISOString(),

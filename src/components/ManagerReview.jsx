@@ -33,11 +33,11 @@ async function fetchQARecords(accessToken) {
     const dateStr = f.InteractionDate || f.SubmissionDate || f.Created || item.createdDateTime;
     return {
       id: item.id,
-      agentName: f.AgentName || "Unknown",
+      agentName: f.Agent || f.AgentName || "Unknown",
       agentEmail: f.AgentEmail || "",
-      evaluatorName: f.EvaluatorName || "",
+      evaluatorName: f.Evaluator || f.EvaluatorName || "",
       channel: f.Channel || "Phone",
-      contactId: f.ContactId || "",
+      contactId: f.ContactId || f.ContactID || "",
       scorePercent: Number(f.ScorePercent ?? f.TotalScore ?? 0),
       passFail: f.PassFail || ((Number(f.ScorePercent ?? 0)) >= 80 ? "Pass" : "Fail"),
       date: dateStr ? new Date(dateStr) : null,

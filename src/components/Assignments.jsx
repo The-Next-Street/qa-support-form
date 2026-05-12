@@ -261,7 +261,7 @@ async function fetchScreeningsByContactId(token) {
   const map = {};
   for (const item of data.value || []) {
     const f = item.fields || {};
-    const cid = String(f.ContactId || "").trim();
+    const cid = String(f.ContactId || f.ContactID || "").trim();
     if (!cid) continue;
     // Keep the most recent screening for each contact id
     const dateStr = f.SubmissionDate || f.Created || item.createdDateTime;
@@ -271,7 +271,7 @@ async function fetchScreeningsByContactId(token) {
       map[cid] = {
         scorePercent: Number(f.ScorePercent ?? f.TotalScore ?? 0),
         passFail: f.PassFail || ((Number(f.ScorePercent ?? 0)) >= 80 ? "Pass" : "Fail"),
-        evaluatorName: f.EvaluatorName || "",
+        evaluatorName: f.Evaluator || f.EvaluatorName || "",
         submissionDate: dateStr,
         _ts: tsNew,
       };

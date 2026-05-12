@@ -168,10 +168,11 @@ async function fetchQARecords(accessToken) {
     const dateStr = f.InteractionDate || f.SubmissionDate || f.Created || item.createdDateTime;
     return {
       id: item.id,
-      agentName: f.AgentName || "",
+      agentName: f.Agent || f.AgentName || "",
       agentEmail: f.AgentEmail || "",
-      evaluatorName: f.EvaluatorName || "",
+      evaluatorName: f.Evaluator || f.EvaluatorName || "",
       channel: f.Channel || "Phone",
+      contactId: f.ContactId || f.ContactID || "",
       scorePercent: f.ScorePercent ?? f.TotalScore ?? 0,
       passFail: f.PassFail || ((f.ScorePercent ?? 0) >= 80 ? "Pass" : "Fail"),
       date: dateStr ? new Date(dateStr) : null,
