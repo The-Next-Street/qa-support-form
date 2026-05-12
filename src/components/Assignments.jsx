@@ -295,6 +295,8 @@ export default function Assignments({ onScreen }) {
   const [dueDate, setDueDate] = useState(getNextMonday());
   const [weekOf, setWeekOf] = useState(getMonday());
   const [expandedEvals, setExpandedEvals] = useState({});
+  // "pending" (default) shows only un-screened assignments; "completed" shows the rest
+  const [view, setView] = useState("pending");
 
   // Get access token
   const getToken = useCallback(async () => {
@@ -423,10 +425,18 @@ export default function Assignments({ onScreen }) {
     }
   }
 
-  // Group assignments by evaluator then agent
+  // Filter assignments by current view (Pending vs Completed)
+  const visibleAssignments = useMemo(() => {
+    return assignments.filter((a) => {
+      const isCompleted = a.Status === "Completed";
+      return view === "completed" ? isCompleted : !isCompleted;
+    });
+  }, [assignments, view]);
+
+  // Group visible assignments by evaluator then agent
   const grouped = useMemo(() => {
     const map = {};
-    assignments.forEach((a) => {
+    visibleAssignments.forEach((a) => {
       const key = a.Evaluator || "Unassigned";
       if (!map[key]) map[key] = {};
       const agentKey = a.Agent || "Unknown";
@@ -434,7 +444,7 @@ export default function Assignments({ onScreen }) {
       map[key][agentKey].push(a);
     });
     return map;
-  }, [assignments]);
+  }, [visibleAssignments]);
 
   const evaluators = Object.keys(grouped).sort();
 
@@ -504,6 +514,43 @@ export default function Assignments({ onScreen }) {
             </div>
           </div>
 
+          {/* Pending / Completed toggle */}
+          {assignments.length > 0 && (
+            <div style={{
+              display: "inline-flex",
+              borderRadius: 8,
+              border: `1.5px solid ${COLORS.lightGray}`,
+              overflow: "hidden",
+              marginBottom: 16,
+            }}>
+              {[
+                { key: "pending", label: `Pending (${stats.pending})` },
+                { key: "completed", label: `Completed (${stats.completed})` },
+              ].map((tab) => {
+                const active = view === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    onClick={() => setView(tab.key)}
+                    style={{
+                      padding: "8px 18px",
+                      fontFamily: FONTS.heading,
+                      fontSize: 13,
+                      fontWeight: 700,
+                      border: "none",
+                      cursor: "pointer",
+                      background: active ? GRADIENT.orange : COLORS.white,
+                      color: active ? COLORS.white : COLORS.gray,
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
           {/* Errors / warnings */}
           {error && <div style={s.errorBox}>{"\u26A0"} {error}</div>}
           {genErrors.length > 0 && (
@@ -526,6 +573,17 @@ export default function Assignments({ onScreen }) {
                 No assignments for this week
               </p>
               <p>Click "Generate This Week's Assignments" to create them from CXone data.</p>
+            </div>
+          ) : visibleAssignments.length === 0 ? (
+            <div style={s.center}>
+              <p style={{ fontSize: 18, fontFamily: FONTS.heading, color: COLORS.gray }}>
+                {view === "completed" ? "No completed screenings yet" : "All screenings complete 🎉"}
+              </p>
+              <p>
+                {view === "completed"
+                  ? "Complete a screening from Pending to see it here."
+                  : "Nice work — nothing left to screen."}
+              </p>
             </div>
           ) : (
             <>
