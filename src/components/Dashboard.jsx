@@ -234,6 +234,7 @@ export default function Dashboard() {
   const [unavailable, setUnavailable] = useState([]);
   const [metricsLoading, setMetricsLoading] = useState(false);
   const [metricsError, setMetricsError] = useState(null);
+  const [expandedAgent, setExpandedAgent] = useState(null);
 
   useEffect(() => {
     async function load() {
@@ -326,19 +327,25 @@ export default function Dashboard() {
           agentName: name,
           totalContacts: 0, byChannel: {}, totalHandleSeconds: 0, avgHandleSeconds: 0, refusedCount: 0,
           unavailableSeconds: 0, screenings: 0, avgScore: null, passCount: 0, passRate: null,
+          screeningRecords: [],
         };
       }
       const agg = byName[name];
       agg.screenings = (agg.screenings || 0) + 1;
       agg._scoreSum = (agg._scoreSum || 0) + (r.scorePercent || 0);
       if (r.passFail === "Pass") agg.passCount = (agg.passCount || 0) + 1;
+      if (!agg.screeningRecords) agg.screeningRecords = [];
+      agg.screeningRecords.push(r);
     });
 
-    // Finalize averages
+    // Finalize averages + sort screenings newest first
     Object.values(byName).forEach((a) => {
       if (a.screenings > 0) {
         a.avgScore = Math.round(a._scoreSum / a.screenings);
         a.passRate = Math.round((a.passCount / a.screenings) * 100);
+      }
+      if (a.screeningRecords) {
+        a.screeningRecords.sort((x, y) => (y.date?.getTime() || 0) - (x.date?.getTime() || 0));
       }
       delete a._scoreSum;
     });
@@ -502,6 +509,7 @@ export default function Dashboard() {
                     <table style={s.table}>
                       <thead>
                         <tr>
+                          <th style={{ ...s.th, width: 18 }}></th>
                           <th style={s.th}>Agent</th>
                           <th style={{ ...s.th, textAlign: "right" }}>Contacts</th>
                           <th style={s.th}>By Channel</th>
@@ -515,35 +523,115 @@ export default function Dashboard() {
                         </tr>
                       </thead>
                       <tbody>
-                        {agentMetrics.map((a) => (
-                          <tr key={a.agentName}>
-                            <td style={{ ...s.td, fontWeight: 600, color: COLORS.gray }}>{a.agentName}</td>
-                            <td style={{ ...s.td, textAlign: "right" }}>{a.totalContacts}</td>
-                            <td style={s.td}>
-                              {Object.entries(a.byChannel || {})
-                                .filter(([, n]) => n > 0)
-                                .map(([ch, n]) => `${ch[0]}${n}`)
-                                .join(" · ") || "-"}
-                            </td>
-                            <td style={{ ...s.td, textAlign: "right" }}>{formatSeconds(a.avgHandleSeconds)}</td>
-                            <td style={{ ...s.td, textAlign: "right" }}>{formatSeconds(a.totalHandleSeconds)}</td>
-                            <td style={{ ...s.td, textAlign: "right", color: a.refusedCount > 0 ? COLORS.fail : COLORS.gray }}>
-                              {a.refusedCount}
-                            </td>
-                            <td style={{ ...s.td, textAlign: "right" }}>{formatSeconds(a.unavailableSeconds)}</td>
-                            <td style={{ ...s.td, textAlign: "right" }}>{a.screenings || "-"}</td>
-                            <td style={{ ...s.td, textAlign: "right", fontWeight: 600,
-                              color: a.avgScore == null ? COLORS.midGray : a.avgScore >= 80 ? COLORS.green : COLORS.fail,
-                            }}>
-                              {a.avgScore == null ? "-" : `${a.avgScore}%`}
-                            </td>
-                            <td style={{ ...s.td, textAlign: "right", fontWeight: 600,
-                              color: a.passRate == null ? COLORS.midGray : a.passRate >= 80 ? COLORS.green : COLORS.fail,
-                            }}>
-                              {a.passRate == null ? "-" : `${a.passRate}%`}
-                            </td>
-                          </tr>
-                        ))}
+                        {agentMetrics.map((a) => {
+                          const isOpen = expandedAgent === a.agentName;
+                          const hasScreenings = (a.screeningRecords || []).length > 0;
+                          return (
+                            <React.Fragment key={a.agentName}>
+                              <tr
+                                style={{
+                                  cursor: hasScreenings ? "pointer" : "default",
+                                  background: isOpen ? "#FFF7ED" : "transparent",
+                                }}
+                                onClick={() => {
+                                  if (!hasScreenings) return;
+                                  setExpandedAgent(isOpen ? null : a.agentName);
+                                }}
+                              >
+                                <td style={{ ...s.td, textAlign: "center", color: COLORS.midGray }}>
+                                  {hasScreenings ? (isOpen ? "▼" : "▶") : ""}
+                                </td>
+                                <td style={{ ...s.td, fontWeight: 600, color: COLORS.gray }}>{a.agentName}</td>
+                                <td style={{ ...s.td, textAlign: "right" }}>{a.totalContacts}</td>
+                                <td style={s.td}>
+                                  {Object.entries(a.byChannel || {})
+                                    .filter(([, n]) => n > 0)
+                                    .map(([ch, n]) => `${ch[0]}${n}`)
+                                    .join(" · ") || "-"}
+                                </td>
+                                <td style={{ ...s.td, textAlign: "right" }}>{formatSeconds(a.avgHandleSeconds)}</td>
+                                <td style={{ ...s.td, textAlign: "right" }}>{formatSeconds(a.totalHandleSeconds)}</td>
+                                <td style={{ ...s.td, textAlign: "right", color: a.refusedCount > 0 ? COLORS.fail : COLORS.gray }}>
+                                  {a.refusedCount}
+                                </td>
+                                <td style={{ ...s.td, textAlign: "right" }}>{formatSeconds(a.unavailableSeconds)}</td>
+                                <td style={{ ...s.td, textAlign: "right" }}>{a.screenings || "-"}</td>
+                                <td style={{ ...s.td, textAlign: "right", fontWeight: 600,
+                                  color: a.avgScore == null ? COLORS.midGray : a.avgScore >= 80 ? COLORS.green : COLORS.fail,
+                                }}>
+                                  {a.avgScore == null ? "-" : `${a.avgScore}%`}
+                                </td>
+                                <td style={{ ...s.td, textAlign: "right", fontWeight: 600,
+                                  color: a.passRate == null ? COLORS.midGray : a.passRate >= 80 ? COLORS.green : COLORS.fail,
+                                }}>
+                                  {a.passRate == null ? "-" : `${a.passRate}%`}
+                                </td>
+                              </tr>
+                              {isOpen && (
+                                <tr style={{ background: "#FFFBF5" }}>
+                                  <td colSpan={11} style={{ padding: "12px 18px" }}>
+                                    <div style={{ fontSize: 12, fontWeight: 700, color: COLORS.gray, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                                      {a.agentName}'s Screenings ({a.screeningRecords.length})
+                                    </div>
+                                    <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                                      <thead>
+                                        <tr>
+                                          <th style={{ ...s.th, fontSize: 10 }}>Date</th>
+                                          <th style={{ ...s.th, fontSize: 10 }}>Channel</th>
+                                          <th style={{ ...s.th, fontSize: 10 }}>Contact ID</th>
+                                          <th style={{ ...s.th, fontSize: 10 }}>Evaluator</th>
+                                          <th style={{ ...s.th, textAlign: "right", fontSize: 10 }}>Score</th>
+                                          <th style={{ ...s.th, textAlign: "right", fontSize: 10 }}>Result</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {a.screeningRecords.map((r) => (
+                                          <tr key={r.id}>
+                                            <td style={s.td}>{r.date ? r.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "-"}</td>
+                                            <td style={s.td}>{r.channel}</td>
+                                            <td style={{ ...s.td, fontFamily: "monospace", fontSize: 11 }}>{r.contactId || "-"}</td>
+                                            <td style={s.td}>{r.evaluatorName || "-"}</td>
+                                            <td style={{
+                                              ...s.td, textAlign: "right", fontWeight: 700,
+                                              color: r.scorePercent >= 80 ? COLORS.green : r.scorePercent < 60 ? COLORS.fail : COLORS.orange,
+                                            }}>
+                                              {r.scorePercent}%
+                                            </td>
+                                            <td style={{
+                                              ...s.td, textAlign: "right", fontWeight: 600,
+                                              color: r.passFail === "Pass" ? COLORS.green : COLORS.fail,
+                                            }}>
+                                              {r.passFail}
+                                            </td>
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                    {a.screeningRecords.some((r) => r.suggestions) && (
+                                      <div style={{ marginTop: 12 }}>
+                                        <div style={{ fontSize: 10, fontWeight: 700, color: COLORS.midGray, marginBottom: 4, textTransform: "uppercase", letterSpacing: 0.5 }}>
+                                          Suggestions
+                                        </div>
+                                        {a.screeningRecords.filter((r) => r.suggestions).map((r) => (
+                                          <div key={`${r.id}-sug`} style={{
+                                            padding: "6px 10px", marginBottom: 4, background: COLORS.white,
+                                            borderLeft: `3px solid ${COLORS.orange}`, borderRadius: 4,
+                                            fontSize: 12, color: COLORS.gray,
+                                          }}>
+                                            <div style={{ fontSize: 10, color: COLORS.midGray, marginBottom: 2 }}>
+                                              {r.date ? r.date.toLocaleDateString() : ""} {"·"} {r.evaluatorName}
+                                            </div>
+                                            {r.suggestions}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              )}
+                            </React.Fragment>
+                          );
+                        })}
                       </tbody>
                     </table>
                   </div>
