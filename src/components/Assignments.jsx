@@ -252,6 +252,34 @@ async function fetchAssignments(token, weekOf) {
   }));
 }
 
+// Fetch screening records keyed by ContactId so the Completed tab can show scores.
+async function fetchScreeningsByContactId(token) {
+  const listId = await getListId(token, sharepointConfig.listName);
+  const data = await graphFetch(token,
+    `/lists/${listId}/items?$expand=fields&$top=500`
+  );
+  const map = {};
+  for (const item of data.value || []) {
+    const f = item.fields || {};
+    const cid = String(f.ContactId || "").trim();
+    if (!cid) continue;
+    // Keep the most recent screening for each contact id
+    const dateStr = f.SubmissionDate || f.Created || item.createdDateTime;
+    const tsNew = dateStr ? new Date(dateStr).getTime() : 0;
+    const existing = map[cid];
+    if (!existing || (existing._ts || 0) < tsNew) {
+      map[cid] = {
+        scorePercent: Number(f.ScorePercent ?? f.TotalScore ?? 0),
+        passFail: f.PassFail || ((Number(f.ScorePercent ?? 0)) >= 80 ? "Pass" : "Fail"),
+        evaluatorName: f.EvaluatorName || "",
+        submissionDate: dateStr,
+        _ts: tsNew,
+      };
+    }
+  }
+  return map;
+}
+
 async function saveAssignment(token, fields) {
   const listId = await getListId(token, sharepointConfig.assignmentsListName);
   return graphPost(token,
@@ -297,6 +325,8 @@ export default function Assignments({ onScreen }) {
   const [expandedEvals, setExpandedEvals] = useState({});
   // "pending" (default) shows only un-screened assignments; "completed" shows the rest
   const [view, setView] = useState("pending");
+  // Score lookup keyed by ContactId, populated from Support Quality Assurance list
+  const [scoreByContactId, setScoreByContactId] = useState({});
 
   // Get access token
   const getToken = useCallback(async () => {
@@ -316,8 +346,12 @@ export default function Assignments({ onScreen }) {
       setError(null);
       try {
         const token = await getToken();
-        const data = await fetchAssignments(token, weekOf);
+        const [data, scores] = await Promise.all([
+          fetchAssignments(token, weekOf),
+          fetchScreeningsByContactId(token).catch(() => ({})),
+        ]);
         setAssignments(data);
+        setScoreByContactId(scores);
       } catch (err) {
         setError(err.message);
       } finally {
@@ -636,18 +670,46 @@ export default function Assignments({ onScreen }) {
                               <th style={s.th}>Date</th>
                               <th style={s.th}>Duration</th>
                               <th style={s.th}>Skill</th>
+                              {view === "completed" && (
+                                <>
+                                  <th style={{ ...s.th, textAlign: "right" }}>Score</th>
+                                  <th style={{ ...s.th, textAlign: "right" }}>Result</th>
+                                </>
+                              )}
                               <th style={{ ...s.th, textAlign: "center" }}>Action</th>
                               <th style={{ ...s.th, textAlign: "center" }}>Done</th>
                             </tr>
                           </thead>
                           <tbody>
-                            {agents[agentName].map((item) => (
+                            {agents[agentName].map((item) => {
+                              const screening = scoreByContactId[String(item.ContactId || "").trim()];
+                              return (
                               <tr key={item.id}>
                                 <td style={{ ...s.td, ...s.contactId }}>{item.ContactId}</td>
                                 <td style={s.td}><span style={s.channelPill(item.Channel)}>{item.Channel}</span></td>
                                 <td style={s.td}>{formatDate(item.InteractionDate)}</td>
                                 <td style={s.td}>{formatDuration(item.Duration)}</td>
                                 <td style={s.td}>{item.SkillName || "-"}</td>
+                                {view === "completed" && (
+                                  <>
+                                    <td style={{
+                                      ...s.td, textAlign: "right", fontWeight: 700,
+                                      color: !screening ? COLORS.midGray
+                                        : screening.scorePercent >= 80 ? COLORS.green
+                                        : screening.scorePercent < 60 ? COLORS.fail
+                                        : COLORS.orange,
+                                    }}>
+                                      {screening ? `${screening.scorePercent}%` : "—"}
+                                    </td>
+                                    <td style={{
+                                      ...s.td, textAlign: "right", fontWeight: 600,
+                                      color: !screening ? COLORS.midGray
+                                        : screening.passFail === "Pass" ? COLORS.green : COLORS.fail,
+                                    }}>
+                                      {screening?.passFail || "—"}
+                                    </td>
+                                  </>
+                                )}
                                 <td style={{ ...s.td, textAlign: "center" }}>
                                   <button
                                     type="button"
@@ -676,7 +738,8 @@ export default function Assignments({ onScreen }) {
                                   />
                                 </td>
                               </tr>
-                            ))}
+                              );
+                            })}
                           </tbody>
                         </table>
                       </div>
