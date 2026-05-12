@@ -1,10 +1,10 @@
 {
   "files": {
-    "main.js": "/qa-support-form/static/js/main.8c37b083.js",
+    "main.js": "/qa-support-form/static/js/main.c0a9cb9a.js",
     "index.html": "/qa-support-form/index.html",
-    "main.8c37b083.js.map": "/qa-support-form/static/js/main.8c37b083.js.map"
+    "main.c0a9cb9a.js.map": "/qa-support-form/static/js/main.c0a9cb9a.js.map"
   },
   "entrypoints": [
-    "static/js/main.8c37b083.js"
+    "static/js/main.c0a9cb9a.js"
   ]
 }
