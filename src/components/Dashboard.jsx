@@ -191,7 +191,12 @@ const BOT_API_KEY = "tns-bot-secret-2024";
 async function fetchProductivity(startDate, endDate) {
   const url = `${BACKEND_URL}/api/metrics/productivity?startDate=${startDate}&endDate=${endDate}`;
   const res = await fetch(url, { headers: { "X-API-Key": BOT_API_KEY } });
-  if (!res.ok) throw new Error(`Productivity fetch failed (${res.status})`);
+  if (!res.ok) {
+    if (res.status === 502 || res.status === 504) {
+      throw new Error(`Productivity fetch timed out (${res.status}). Try a shorter date range (under 31 days).`);
+    }
+    throw new Error(`Productivity fetch failed (${res.status})`);
+  }
   return res.json();
 }
 
@@ -477,16 +482,32 @@ export default function Dashboard() {
                     <input
                       type="date"
                       value={metricsRange.start}
-                      onChange={(e) => setMetricsRange((r) => ({ ...r, start: e.target.value }))}
+                      onChange={(e) => {
+                        const newStart = e.target.value;
+                        const startDt = new Date(newStart).getTime();
+                        const endDt = new Date(metricsRange.end).getTime();
+                        // Cap to 31 days to keep within free-tier backend timeout
+                        const maxMs = 31 * 24 * 3600 * 1000;
+                        const adjustedEnd = endDt - startDt > maxMs ? isoDate(new Date(startDt + maxMs)) : metricsRange.end;
+                        setMetricsRange({ start: newStart, end: adjustedEnd });
+                      }}
                       style={{ padding: "6px 10px", border: `1.5px solid ${COLORS.lightGray}`, borderRadius: 6, fontFamily: FONTS.body, fontSize: 13 }}
                     />
                     <label style={{ color: COLORS.midGray }}>To</label>
                     <input
                       type="date"
                       value={metricsRange.end}
-                      onChange={(e) => setMetricsRange((r) => ({ ...r, end: e.target.value }))}
+                      onChange={(e) => {
+                        const newEnd = e.target.value;
+                        const startDt = new Date(metricsRange.start).getTime();
+                        const endDt = new Date(newEnd).getTime();
+                        const maxMs = 31 * 24 * 3600 * 1000;
+                        const adjustedStart = endDt - startDt > maxMs ? isoDate(new Date(endDt - maxMs)) : metricsRange.start;
+                        setMetricsRange({ start: adjustedStart, end: newEnd });
+                      }}
                       style={{ padding: "6px 10px", border: `1.5px solid ${COLORS.lightGray}`, borderRadius: 6, fontFamily: FONTS.body, fontSize: 13 }}
                     />
+                    <span style={{ color: COLORS.midGray, fontSize: 11 }}>(max 31 days)</span>
                     {metricsLoading && <span style={{ color: COLORS.midGray, fontSize: 12 }}>Loading…</span>}
                   </div>
                 </div>
