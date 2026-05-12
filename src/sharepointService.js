@@ -124,18 +124,48 @@ export async function submitQARecord(accessToken, formData) {
   const endpoint =
     `https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}/lists/${encodeURIComponent(listName)}/items`;
 
-  const response = await fetch(endpoint, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ fields }),
-  });
+  async function tryPost(payloadFields) {
+    return fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ fields: payloadFields }),
+    });
+  }
+
+  // Recover from "Field 'X' is not recognized" by dropping that field and retrying.
+  // Tolerates up to N unknown columns so the screening still saves.
+  let response = await tryPost(fields);
+  let attempts = 0;
+  while (!response.ok && attempts < 25) {
+    const errText = await response.text();
+    const match = errText.match(/Field '([^']+)' is not recognized/i);
+    if (!match) {
+      // Different failure — include what we detected for debugging
+      const detectedKeys = Object.values(normToActual).slice(0, 30).join(", ");
+      throw new Error(
+        `Graph error ${response.status}: ${errText}\n\nDetected SharePoint columns: ${detectedKeys || "(none)"}`
+      );
+    }
+    const badField = match[1];
+    // Find and remove the offending field from our payload (case-insensitive)
+    const keyToDrop = Object.keys(fields).find((k) => k.toLowerCase() === badField.toLowerCase());
+    if (!keyToDrop) {
+      // Can't isolate which one — give up with details
+      const detectedKeys = Object.values(normToActual).slice(0, 30).join(", ");
+      throw new Error(
+        `Graph error ${response.status}: ${errText}\n\nDetected SharePoint columns: ${detectedKeys || "(none)"}`
+      );
+    }
+    delete fields[keyToDrop];
+    attempts += 1;
+    response = await tryPost(fields);
+  }
 
   if (!response.ok) {
     const errorText = await response.text();
-    // Debug: include what column names we detected so we can see the mismatch
     const detectedKeys = Object.values(normToActual).slice(0, 30).join(", ");
     throw new Error(
       `Graph error ${response.status}: ${errorText}\n\nDetected SharePoint columns: ${detectedKeys || "(none)"}`
