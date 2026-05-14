@@ -535,7 +535,8 @@ export default function QAForm({ prefill, onDone }) {
   const [dropWarning, setDropWarning] = useState(null);
 
   // Pre-fill context info shown at top of form when coming from an assignment
-  const contactId = prefill?.contactId || "";
+  // ContactID: pre-fill from assignment if launched from Screen; otherwise let user enter manually.
+  const [contactId, setContactId] = useState(prefill?.contactId || "");
   const skillName = prefill?.skillName || "";
   const assignmentId = prefill?.assignmentId || null;
   const interactionDate = prefill?.interactionDate || "";
@@ -660,6 +661,8 @@ export default function QAForm({ prefill, onDone }) {
     setEvaluatorName(signedInName);
     setSuggestions("");
     setAttachments([]);
+    setContactId("");
+    setDropWarning(null);
     setSubmitted(false);
     setError(null);
   }
@@ -869,6 +872,34 @@ export default function QAForm({ prefill, onDone }) {
                 value={evaluatorName}
                 readOnly
                 tabIndex={-1}
+              />
+            </div>
+          </div>
+
+          {/* Contact ID */}
+          <div style={styles.row}>
+            <div style={styles.col}>
+              <label style={styles.label}>
+                Contact ID
+                {prefill?.contactId ? null : (
+                  <span style={{ color: COLORS.midGray, fontWeight: 400, marginLeft: 6 }}>
+                    (from NICE — optional for one-off screenings)
+                  </span>
+                )}
+              </label>
+              <input
+                style={{
+                  ...styles.input,
+                  fontFamily: "monospace",
+                  // Show as read-only when prefilled from an assignment
+                  ...(prefill?.contactId
+                    ? { background: "#F5F5F5", color: COLORS.midGray }
+                    : {}),
+                }}
+                value={contactId}
+                onChange={(e) => setContactId(e.target.value)}
+                readOnly={!!prefill?.contactId}
+                placeholder="e.g. 700729094675"
               />
             </div>
           </div>

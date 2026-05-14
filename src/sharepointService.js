@@ -83,10 +83,11 @@ export async function submitQARecord(accessToken, formData) {
   const { listName } = sharepointConfig;
 
   // Build the desired payload — use the actual SharePoint column names on
-  // the Support Quality Assurance list. (Discovered via the diagnostic banner.)
+  // the Support Quality Assurance list. "Agent" is likely a Person column
+  // that silently rejects text, so we write to AgentName (text) instead.
   const desired = {
-    Agent: formData.AgentName,           // column exists
-    AgentName: formData.AgentName,        // column also exists (separate)
+    AgentName: formData.AgentName,
+    Title: formData.AgentName,            // Title is required by SharePoint; use agent name as a sensible default
     AgentEmail: formData.AgentEmail,
     EvaluatorName: formData.EvaluatorName,
     Channel: formData.Channel || "Phone",
