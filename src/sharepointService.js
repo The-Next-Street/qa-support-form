@@ -138,29 +138,28 @@ export async function submitQARecord(accessToken, formData) {
   }
 
   // Recover from "Field 'X' is not recognized" by dropping that field and retrying.
-  // Tolerates up to N unknown columns so the screening still saves.
+  // Track what gets dropped so we can surface a warning to the user.
+  const droppedFields = [];
   let response = await tryPost(fields);
   let attempts = 0;
   while (!response.ok && attempts < 25) {
     const errText = await response.text();
     const match = errText.match(/Field '([^']+)' is not recognized/i);
     if (!match) {
-      // Different failure — include what we detected for debugging
       const detectedKeys = Object.values(normToActual).slice(0, 30).join(", ");
       throw new Error(
         `Graph error ${response.status}: ${errText}\n\nDetected SharePoint columns: ${detectedKeys || "(none)"}`
       );
     }
     const badField = match[1];
-    // Find and remove the offending field from our payload (case-insensitive)
     const keyToDrop = Object.keys(fields).find((k) => k.toLowerCase() === badField.toLowerCase());
     if (!keyToDrop) {
-      // Can't isolate which one — give up with details
       const detectedKeys = Object.values(normToActual).slice(0, 30).join(", ");
       throw new Error(
         `Graph error ${response.status}: ${errText}\n\nDetected SharePoint columns: ${detectedKeys || "(none)"}`
       );
     }
+    droppedFields.push(keyToDrop);
     delete fields[keyToDrop];
     attempts += 1;
     response = await tryPost(fields);
@@ -175,7 +174,17 @@ export async function submitQARecord(accessToken, formData) {
   }
 
   const body = await response.json();
-  return { ...body.fields, Id: body.id };
+  // Stash the diagnostic info so QAForm can show a warning AND so we can console.log it for debugging
+  if (droppedFields.length > 0) {
+    console.warn("[QA submit] Dropped fields (not in SharePoint):", droppedFields);
+    console.info("[QA submit] All detected SharePoint columns:", Object.values(normToActual).sort());
+  }
+  return {
+    ...body.fields,
+    Id: body.id,
+    _droppedFields: droppedFields,
+    _detectedColumns: Object.values(normToActual).sort(),
+  };
 }
 
 /**

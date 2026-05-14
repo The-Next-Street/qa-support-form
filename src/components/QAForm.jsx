@@ -531,6 +531,8 @@ export default function QAForm({ prefill, onDone }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState(null);
+  // After submit, surfaces any SharePoint columns we tried to write to but couldn't
+  const [dropWarning, setDropWarning] = useState(null);
 
   // Pre-fill context info shown at top of form when coming from an assignment
   const contactId = prefill?.contactId || "";
@@ -575,6 +577,14 @@ export default function QAForm({ prefill, onDone }) {
       ScorePercent: scorePercent,
       PassFail: passFail,
     });
+
+    // Surface diagnostic info if any fields were dropped due to column-name mismatch
+    if (record?._droppedFields?.length > 0) {
+      setDropWarning({
+        dropped: record._droppedFields,
+        detected: record._detectedColumns || [],
+      });
+    }
 
     // 2. Upload attachments if any were chosen
     if (attachments.length > 0 && record?.Id) {
@@ -692,6 +702,36 @@ export default function QAForm({ prefill, onDone }) {
                 {passFail}
               </span>
             </div>
+
+            {/* Diagnostic: surface column mismatch so we can fix the name map */}
+            {dropWarning && dropWarning.dropped.length > 0 && (
+              <div style={{
+                marginTop: 4,
+                padding: "12px 16px",
+                background: COLORS.warningBg,
+                border: `1.5px solid ${COLORS.clementine}`,
+                borderRadius: 8,
+                fontSize: 13,
+                textAlign: "left",
+                color: "#795548",
+              }}>
+                <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                  \u26A0 {dropWarning.dropped.length} field{dropWarning.dropped.length !== 1 ? "s" : ""} weren't saved (column-name mismatch)
+                </div>
+                <div style={{ fontSize: 12, marginBottom: 8 }}>
+                  We tried to save these but SharePoint didn't recognize them:
+                </div>
+                <div style={{ fontFamily: "monospace", fontSize: 11, background: COLORS.white, padding: 8, borderRadius: 4, marginBottom: 8 }}>
+                  {dropWarning.dropped.join(", ")}
+                </div>
+                <div style={{ fontSize: 12, marginBottom: 4 }}>
+                  Detected columns on the list (share this so we can update the mapping):
+                </div>
+                <div style={{ fontFamily: "monospace", fontSize: 10, background: COLORS.white, padding: 8, borderRadius: 4, maxHeight: 120, overflowY: "auto" }}>
+                  {dropWarning.detected.join(" \u00B7 ")}
+                </div>
+              </div>
+            )}
             <br />
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
               {assignmentId && (
