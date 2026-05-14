@@ -88,28 +88,29 @@ export const QA_QUESTIONS = [
     description: "Open to coaching and feedback for continuous development. Willing to learn and improve." },
 ];
 
-// Map our React field name → SharePoint column display name (used by submit code)
+// Map our React field name → SharePoint column internal name (used by submit code).
+// These match the actual list columns in "Support Quality Assurance" (Qxx_Name format).
 export const FIELD_TO_SP_COLUMN = {
-  Greeting: "Greeting",
-  ActiveListening: "Active Listening",
-  Professionalism: "Professionalism",
-  Empathy: "Empathy",
-  NeedsIdentification: "Needs Identification",
-  CustomerFocus: "Customer Focus",
-  BuildingRapport: "Building Rapport",
-  Communication: "Communication",
-  ProductKnowledge: "Product Knowledge",
-  SolutionOriented: "Solution Oriented",
-  ProblemSolvingSkills: "Problem Solving Skills",
-  Escalation: "Escalation",
-  FirstCallResolution: "First Call Resolution",
-  ActionItemsFollowUp: "Action Items & Follow Up",
-  Verification: "Verification",
-  CallClosure: "Call Closure",
-  TNSPoliciesProcedures: "TNS Policies & Procedures",
-  Upselling: "Upselling",
-  Compliance: "Compliance",
-  CoachingDevelopment: "Coaching & Development",
+  Greeting: "Q06_Greeting",
+  ActiveListening: "Q07_ActiveListening",
+  Professionalism: "Q08_Professionalism",
+  Empathy: "Q09_Empathy",
+  NeedsIdentification: "Q10_NeedsIdentification",
+  CustomerFocus: "Q11_CustomerFocus",
+  BuildingRapport: "Q12_BuildingRapport",
+  Communication: "Q13_Communication",
+  ProductKnowledge: "Q14_ProductKnowledge",
+  SolutionOriented: "Q15_SolutionOriented",
+  ProblemSolvingSkills: "Q16_ProblemSolvingSkills",
+  Escalation: "Q17_Escalation",
+  FirstCallResolution: "Q18_FirstCallResolution",
+  ActionItemsFollowUp: "Q19_ActionItemsFollowUp",
+  Verification: "Q20_Verification",
+  CallClosure: "Q21_CallClosure",
+  TNSPoliciesProcedures: "Q22_TNSPoliciesProcedures",
+  Upselling: "Q23_Upselling",
+  Compliance: "Q24_Compliance",
+  CoachingDevelopment: "Q25_CoachingDevelopment",
 };
 
 // Per-channel variant: same questions for all channels for now.

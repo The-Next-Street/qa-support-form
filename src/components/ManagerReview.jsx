@@ -30,7 +30,7 @@ async function fetchQARecords(accessToken) {
   const data = await res.json();
   return (data.value || []).map((item) => {
     const f = item.fields || {};
-    const dateStr = f.InteractionDate || f.SubmissionDate || f.Created || item.createdDateTime;
+    const dateStr = f.DateOfInteraction || f.InteractionDate || f.SubmissionDate || f.Created || item.createdDateTime;
     return {
       id: item.id,
       agentName: f.Agent || f.AgentName || "Unknown",

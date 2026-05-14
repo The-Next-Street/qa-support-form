@@ -107,9 +107,14 @@ export async function submitQARecord(accessToken, formData) {
     }
   }
 
-  if (formData.ContactId) desired.ContactId = String(formData.ContactId);
+  if (formData.ContactId) {
+    desired.ContactID = String(formData.ContactId);     // SharePoint column is ContactID (uppercase D)
+    desired.ContactId = String(formData.ContactId);     // fallback alias
+  }
   if (formData.InteractionDate) {
-    desired.InteractionDate = new Date(formData.InteractionDate).toISOString();
+    const iso = new Date(formData.InteractionDate).toISOString();
+    desired.DateOfInteraction = iso;                    // SharePoint column is DateOfInteraction
+    desired.InteractionDate = iso;                      // fallback alias
   }
 
   // Map "desired" names to the actual internal names that exist on the list.

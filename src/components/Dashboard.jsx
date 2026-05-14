@@ -164,8 +164,8 @@ async function fetchQARecords(accessToken) {
   const data = await response.json();
   const records = (data.value || []).map((item) => {
     const f = item.fields || {};
-    // Date priority: InteractionDate (actual contact time from CXone) → SubmissionDate → Created
-    const dateStr = f.InteractionDate || f.SubmissionDate || f.Created || item.createdDateTime;
+    // Date priority: DateOfInteraction (CXone) → InteractionDate (legacy) → SubmissionDate → Created
+    const dateStr = f.DateOfInteraction || f.InteractionDate || f.SubmissionDate || f.Created || item.createdDateTime;
     return {
       id: item.id,
       agentName: f.Agent || f.AgentName || "",
