@@ -7,7 +7,7 @@ import { COLORS, FONTS, GRADIENT } from "../brand";
 
 // ── CXone agent roster ─────────────────────────────────────────────────────
 
-const BACKEND_URL = "https://cxone-faq-bot-1.onrender.com";
+const BACKEND_URL = "https://support-qa-64ne.onrender.com";
 const BOT_API_KEY = "tns-bot-secret-2024";
 
 let _agentRosterCache = null;
