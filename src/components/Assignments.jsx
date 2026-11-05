@@ -3,7 +3,7 @@ import { useMsal } from "@azure/msal-react";
 import { loginRequest, sharepointConfig } from "../authConfig";
 import { COLORS, FONTS, GRADIENT } from "../brand";
 
-const BACKEND_URL = "https://cxone-faq-bot-1.onrender.com";
+const BACKEND_URL = "https://support-qa-64ne.onrender.com";
 const BOT_API_KEY = "tns-bot-secret-2024";
 const GRAPH_SITE = "allstardriver.sharepoint.com:/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam:";
 
