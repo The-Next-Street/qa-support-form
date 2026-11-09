@@ -1,14 +1,13 @@
 import React, { useState } from "react";
 import { MsalProvider, AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
-import { PublicClientApplication } from "@azure/msal-browser";
-import { msalConfig, loginRequest } from "./authConfig";
+import { loginRequest } from "./authConfig";
+import { msalInstance } from "./msalInstance";
 import { COLORS, FONTS, GRADIENT } from "./brand";
 import QAForm from "./components/QAForm";
 import Dashboard from "./components/Dashboard";
 import Assignments from "./components/Assignments";
 import ManagerReview from "./components/ManagerReview";
 
-const msalInstance = new PublicClientApplication(msalConfig);
 
 // ── Sign-In Page ────────────────────────────────────────────────────────────
 

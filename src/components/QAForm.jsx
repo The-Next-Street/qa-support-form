@@ -4,11 +4,10 @@ import { loginRequest } from "../authConfig";
 import { submitQARecord, sendScoreEmail, uploadAttachments, markAssignmentCompleted } from "../sharepointService";
 import { QA_QUESTIONS_BY_CHANNEL, CHANNELS, calculateScore } from "../questions";
 import { COLORS, FONTS, GRADIENT } from "../brand";
+import { qaFetch } from "../qaApi";
 
 // ── CXone agent roster ─────────────────────────────────────────────────────
 
-const BACKEND_URL = "https://support-qa-64ne.onrender.com";
-const BOT_API_KEY = "tns-bot-secret-2024";
 
 let _agentRosterCache = null;
 let _agentRosterPromise = null;
@@ -19,9 +18,7 @@ async function fetchAgentRoster() {
   if (_agentRosterPromise) return _agentRosterPromise;
   _agentRosterPromise = (async () => {
     try {
-      const res = await fetch(`${BACKEND_URL}/api/metrics/agents`, {
-        headers: { "X-API-Key": BOT_API_KEY },
-      });
+      const res = await qaFetch("/api/metrics/agents");
       if (!res.ok) return [];
       const data = await res.json();
       const list = data.agents || [];

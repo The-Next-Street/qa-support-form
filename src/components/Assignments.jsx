@@ -2,9 +2,8 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useMsal } from "@azure/msal-react";
 import { loginRequest, sharepointConfig } from "../authConfig";
 import { COLORS, FONTS, GRADIENT } from "../brand";
+import { qaFetch } from "../qaApi";
 
-const BACKEND_URL = "https://support-qa-64ne.onrender.com";
-const BOT_API_KEY = "tns-bot-secret-2024";
 const GRAPH_SITE = "allstardriver.sharepoint.com:/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam:";
 
 // ── Styles ──────────────────────────────────────────────────────────────────
@@ -399,9 +398,9 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
       }
 
       // 2. Call backend to generate from CXone
-      const res = await fetch(`${BACKEND_URL}/api/assignments/generate`, {
+      const res = await qaFetch("/api/assignments/generate", {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-API-Key": BOT_API_KEY },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           evaluator_agents: config.map((c) => ({
             evaluatorName: c.evaluatorName,

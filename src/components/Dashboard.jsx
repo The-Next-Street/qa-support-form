@@ -3,6 +3,7 @@ import { useMsal } from "@azure/msal-react";
 import { loginRequest } from "../authConfig";
 import { sharepointConfig } from "../authConfig";
 import { COLORS, FONTS, GRADIENT } from "../brand";
+import { qaFetch } from "../qaApi";
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 
@@ -186,12 +187,9 @@ async function fetchQARecords(accessToken) {
 
 // ── Agent metrics helpers ───────────────────────────────────────────────────
 
-const BACKEND_URL = "https://support-qa-64ne.onrender.com";
-const BOT_API_KEY = "tns-bot-secret-2024";
 
 async function fetchProductivity(startDate, endDate) {
-  const url = `${BACKEND_URL}/api/metrics/productivity?startDate=${startDate}&endDate=${endDate}`;
-  const res = await fetch(url, { headers: { "X-API-Key": BOT_API_KEY } });
+  const res = await qaFetch(`/api/metrics/productivity?startDate=${startDate}&endDate=${endDate}`);
   if (!res.ok) {
     if (res.status === 502 || res.status === 504) {
       throw new Error(`Productivity fetch timed out (${res.status}). Try a shorter date range (under 31 days).`);
@@ -202,8 +200,7 @@ async function fetchProductivity(startDate, endDate) {
 }
 
 async function fetchUnavailable(startDate, endDate) {
-  const url = `${BACKEND_URL}/api/metrics/unavailable?startDate=${startDate}&endDate=${endDate}`;
-  const res = await fetch(url, { headers: { "X-API-Key": BOT_API_KEY } });
+  const res = await qaFetch(`/api/metrics/unavailable?startDate=${startDate}&endDate=${endDate}`);
   if (!res.ok) throw new Error(`Unavailable fetch failed (${res.status})`);
   return res.json();
 }
