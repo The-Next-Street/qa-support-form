@@ -1,6 +1,7 @@
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
 import Dashboard from "./Dashboard";
+import Screenings from "./Screenings";
 import ScreeningDetail from "./ScreeningDetail";
 import QAForm from "./QAForm";
 import * as api from "../qaApi";
@@ -31,11 +32,13 @@ jest.mock("../msalInstance", () => ({ msalInstance: {} }));
 global.IS_REACT_ACT_ENVIRONMENT = true;
 const allYes = Object.fromEntries(QA_QUESTIONS.map((q) => [q.field, "Yes"]));
 
+const daysAgo = (n) => new Date(Date.now() - n * 86400000).toISOString();
+
 function screening(over) {
   return {
     id: 1, agent_name: "Ed Green", agent_email: "ed@example.com", evaluator_name: "Eva Evaluator",
-    channel: "Phone", contact_id: "C1", interaction_date: "2026-11-10T15:00:00+00:00",
-    submitted_at: "2026-11-11T09:00:00+00:00", answers: allYes, score_earned: 20, score_total: 20,
+    channel: "Phone", contact_id: "C1", interaction_date: daysAgo(3),
+    submitted_at: daysAgo(2), answers: allYes, score_earned: 20, score_total: 20,
     score_percent: 100, pass_fail: "Pass", suggestions: "", team: "customer_support",
     can_edit: true, updated_at: null, imported: false, ...over,
   };
@@ -66,8 +69,8 @@ const click = (el) => act(() => { el.dispatchEvent(new MouseEvent("click", { bub
 const byText = (text) => [...container.querySelectorAll("button, td, span, h1, h2, p, div")]
   .find((el) => el.textContent.trim() === text);
 
-test("dashboard opens on Customer Support and switches teams", async () => {
-  await act(async () => root.render(<Dashboard />));
+test("screenings page opens on Customer Support and switches teams", async () => {
+  await act(async () => root.render(<Screenings />));
   await flush();
   const table = () => [...container.querySelectorAll("table")].pop().textContent;
   expect(table()).toContain("Ed Green");
@@ -78,6 +81,44 @@ test("dashboard opens on Customer Support and switches teams", async () => {
   click(byText("All Teams"));
   expect(table()).toContain("Ed Green");
   expect(table()).toContain("Internal Support"); // team column shown on All
+});
+
+test("screenings outside the date range are hidden until the range widens", async () => {
+  api.listScreenings.mockResolvedValue({
+    screenings: [screening({ id: 1 }), screening({ id: 3, agent_name: "Old Timer", interaction_date: daysAgo(200) })],
+    truncated: false,
+  });
+  await act(async () => root.render(<Screenings />));
+  await flush();
+  const table = () => [...container.querySelectorAll("table")].pop().textContent;
+  expect(table()).not.toContain("Old Timer");
+  const range = container.querySelector('select[aria-label="Date range"]');
+  await act(async () => {
+    range.value = "all";
+    range.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(table()).toContain("Old Timer");
+});
+
+test("screenings page applies filters handed over from the dashboard", async () => {
+  await act(async () => root.render(<Screenings initialListFilters={{ result: "Fail" }} filters={{ team: "all", preset: "all", start: "", end: "" }} onFiltersChange={() => {}} />));
+  await flush();
+  const table = () => [...container.querySelectorAll("table")].pop().textContent;
+  expect(table()).toContain("Lisa Gilmore");
+  expect(table()).not.toContain("Ed Green");
+});
+
+test("dashboard shows headline numbers and agent performance for the team", async () => {
+  await act(async () => root.render(<Dashboard />));
+  await flush();
+  const text = container.textContent;
+  expect(text).toContain("Agent performance");
+  const table = () => [...container.querySelectorAll("table")].pop().textContent;
+  expect(table()).toContain("Ed Green");
+  expect(table()).not.toContain("Lisa Gilmore");
+  click(byText("Internal Support"));
+  expect(table()).toContain("Lisa Gilmore");
+  expect(container.textContent).toContain("Recent failed screenings");
 });
 
 test("detail panel shows history and offers Edit only when allowed", async () => {

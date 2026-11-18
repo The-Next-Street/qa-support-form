@@ -4,6 +4,7 @@ import { loginRequest } from "../authConfig";
 import { sendScoreEmail } from "../emailService";
 import { QA_QUESTIONS_BY_CHANNEL, CHANNELS, calculateScore } from "../questions";
 import { COLORS, FONTS, GRADIENT } from "../brand";
+import { headerStyles } from "./ui";
 import { qaFetch, createScreening, updateScreening, uploadAttachment } from "../qaApi";
 
 // ── CXone agent roster ─────────────────────────────────────────────────────
@@ -308,16 +309,10 @@ const styles = {
     margin: "0 auto",
     background: COLORS.white,
     borderRadius: 12,
-    boxShadow: "0 4px 24px rgba(0,0,0,0.08)",
+    border: "1px solid #E8E8E8", boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
     overflow: "hidden",
   },
-  header: {
-    background: GRADIENT.orange,
-    padding: "28px 32px",
-    color: COLORS.white,
-  },
-  headerTitle: { margin: 0, fontSize: 24, fontWeight: 700, fontFamily: FONTS.heading },
-  headerSub: { margin: "6px 0 0", fontSize: 14, color: "rgba(255,255,255,0.8)" },
+  ...headerStyles,
   body: { padding: "28px 32px" },
 
   row: { display: "flex", gap: 16, marginBottom: 16 },
@@ -771,7 +766,7 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
       <div style={styles.card}>
         {/* Header */}
         <div style={styles.header}>
-          <h1 style={styles.headerTitle}>{editing ? "Edit Screening" : "Support Quality Assurance"}</h1>
+          <h1 style={styles.headerTitle}>{editing ? "Edit Screening" : "New Screening"}</h1>
           <p style={styles.headerSub}>
             {channel} {"\u00B7"} 20 criteria {"\u00B7"} Yes / No / N/A {"\u00B7"} N/A excluded from score {"\u00B7"} Pass threshold: 80%
           </p>
