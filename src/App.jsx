@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { MsalProvider, AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from "@azure/msal-react";
 import { loginRequest } from "./authConfig";
 import { msalInstance } from "./msalInstance";
@@ -7,6 +7,8 @@ import QAForm from "./components/QAForm";
 import Dashboard from "./components/Dashboard";
 import Assignments from "./components/Assignments";
 import ManagerReview from "./components/ManagerReview";
+import Settings from "./components/Settings";
+import { getMe } from "./qaApi";
 
 
 // ── Sign-In Page ────────────────────────────────────────────────────────────
@@ -93,7 +95,7 @@ function SignInPage() {
 
 // ── Navigation Bar ──────────────────────────────────────────────────────────
 
-function NavBar({ page, setPage }) {
+function NavBar({ page, setPage, isManager }) {
   const { accounts, instance } = useMsal();
 
   return (
@@ -128,6 +130,7 @@ function NavBar({ page, setPage }) {
           { key: "assignments", label: "Assignments" },
           { key: "review", label: "Manager Review" },
           { key: "form", label: "New Screening" },
+          ...(isManager ? [{ key: "settings", label: "Settings" }] : []),
         ].map((tab) => (
           <button
             key={tab.key}
@@ -183,6 +186,23 @@ function AppContent() {
   const [prefill, setPrefill] = useState(null);
   // bumped after a screening submit so Assignments / Dashboard re-fetch
   const [refreshKey, setRefreshKey] = useState(0);
+  // the screening being edited (from the Dashboard's detail panel)
+  const [editScreening, setEditScreening] = useState(null);
+  const [isManager, setIsManager] = useState(false);
+  const { accounts } = useMsal();
+
+  // Ask the QA service whether the signed-in person is a manager (it decides;
+  // this only controls whether the Settings tab is shown).
+  useEffect(() => {
+    if (!accounts[0]) return;
+    getMe().then((me) => setIsManager(!!me.isManager)).catch(() => setIsManager(false));
+  }, [accounts]);
+
+  function openEdit(screening) {
+    setPrefill(null);
+    setEditScreening(screening);
+    setPage("form");
+  }
 
   function openScreeningFromAssignment(data) {
     setPrefill(data);
@@ -191,28 +211,40 @@ function AppContent() {
 
   function handleTabChange(newPage) {
     // When manually switching to "form" tab, clear any prefill (user wants a fresh screening)
-    if (newPage === "form" && page !== "form") setPrefill(null);
+    if (newPage === "form") {
+      setPrefill(null);
+      setEditScreening(null);
+    }
     setPage(newPage);
   }
 
   function handleScreeningSubmitted() {
+    const wasEdit = !!editScreening;
     setPrefill(null);
+    setEditScreening(null);
     setRefreshKey((k) => k + 1);
-    setPage("assignments");
+    setPage(wasEdit ? "dashboard" : "assignments");
   }
 
   return (
     <>
       <AuthenticatedTemplate>
-        <NavBar page={page} setPage={handleTabChange} />
+        <NavBar page={page} setPage={handleTabChange} isManager={isManager} />
         {page === "dashboard" ? (
-          <Dashboard refreshKey={refreshKey} />
+          <Dashboard refreshKey={refreshKey} onEdit={openEdit} />
         ) : page === "assignments" ? (
           <Assignments onScreen={openScreeningFromAssignment} refreshKey={refreshKey} />
         ) : page === "review" ? (
           <ManagerReview refreshKey={refreshKey} />
+        ) : page === "settings" && isManager ? (
+          <Settings />
         ) : (
-          <QAForm prefill={prefill} onDone={handleScreeningSubmitted} />
+          <QAForm
+            key={editScreening ? `edit-${editScreening.id}` : "new"}
+            prefill={prefill}
+            editScreening={editScreening}
+            onDone={handleScreeningSubmitted}
+          />
         )}
       </AuthenticatedTemplate>
 

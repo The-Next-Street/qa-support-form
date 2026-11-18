@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
-import { useMsal } from "@azure/msal-react";
-import { loginRequest, sharepointConfig } from "../authConfig";
+import React, { useState, useEffect, useMemo } from "react";
 import { COLORS, FONTS, GRADIENT } from "../brand";
-import { qaFetch } from "../qaApi";
-
-const GRAPH_SITE = "allstardriver.sharepoint.com:/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam:";
+import {
+  qaFetch, listEvaluatorPairs, listAssignments, saveAssignments,
+  setAssignmentStatus, deleteAssignment as apiDeleteAssignment,
+} from "../qaApi";
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 
@@ -98,215 +97,37 @@ const s = {
   warningBox: { background: COLORS.warningBg, border: `1px solid ${COLORS.clementine}`, borderRadius: 8, padding: "12px 16px", fontSize: 13, color: "#795548", marginBottom: 16 },
 };
 
-// ── Helpers: SharePoint Graph API ───────────────────────────────────────────
+// ── Helpers: QA service ─────────────────────────────────────────────────────
 
-const GRAPH_BASE = `https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}`;
-const PREFER_HEADER = "HonorNonIndexedQueriesWarningMayFailRandomly";
-
-async function graphFetch(token, path) {
-  const res = await fetch(`${GRAPH_BASE}${path}`, {
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: PREFER_HEADER },
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Graph ${res.status}: ${err}`);
-  }
-  return res.json();
-}
-
-async function graphPost(token, path, body) {
-  const res = await fetch(`${GRAPH_BASE}${path}`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: PREFER_HEADER },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Graph POST ${res.status}: ${err}`);
-  }
-  return res.json();
-}
-
-async function graphPatch(token, path, body) {
-  const res = await fetch(`${GRAPH_BASE}${path}`, {
-    method: "PATCH",
-    headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Prefer: PREFER_HEADER },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const err = await res.text();
-    throw new Error(`Graph PATCH ${res.status}: ${err}`);
-  }
-}
-
-// Look up a SharePoint list ID by display name (more reliable than using name in URL)
-const _listIdCache = {};
-async function getListId(token, displayName) {
-  if (_listIdCache[displayName]) return _listIdCache[displayName];
-  // First try exact filter
-  const data = await graphFetch(token, `/lists?$filter=displayName eq '${displayName}'`);
-  const list = (data.value || [])[0];
-  if (list) {
-    _listIdCache[displayName] = list.id;
-    return list.id;
-  }
-  // Not found — fetch all lists to help debug
-  const allLists = await graphFetch(token, `/lists?$select=displayName,id&$top=100`);
-  const names = (allLists.value || []).map((l) => l.displayName).join(", ");
-  throw new Error(`List "${displayName}" not found. Available lists: ${names}`);
-}
-
-// Resolve SharePoint Person column LookupIds to user details
-async function resolveUsers(token, lookupIds) {
-  const userMap = {};
-  for (const id of lookupIds) {
-    if (!id || userMap[id]) continue;
-    try {
-      const user = await graphFetch(token,
-        `/lists('User Information List')/items/${id}?$expand=fields($select=Title,EMail)`
-      );
-      userMap[id] = {
-        name: user.fields?.Title || "",
-        email: user.fields?.EMail || "",
-      };
-    } catch (e) {
-      console.warn(`Could not resolve user lookupId ${id}:`, e.message);
-      userMap[id] = { name: `User #${id}`, email: "" };
-    }
-  }
-  return userMap;
-}
-
-async function fetchEvaluatorAgents(token) {
-  const listId = await getListId(token, sharepointConfig.evaluatorAgentsListName);
-  const data = await graphFetch(token,
-    `/lists/${listId}/items?$expand=fields&$top=500`
-  );
-  const items = data.value || [];
-
-  // If no items, return empty
-  if (items.length === 0) return [];
-
-  // Debug: inspect what field names SharePoint actually returns
-  const sampleFields = items[0]?.fields || {};
-  const fieldNames = Object.keys(sampleFields).filter((k) => !k.startsWith("@"));
-
-  // Try to find Person column LookupId fields (could be Evaluator, Agent, or other names)
-  const evalLookupKey = fieldNames.find((k) => /evaluator/i.test(k) && /lookupid/i.test(k));
-  const agentLookupKey = fieldNames.find((k) => /agent/i.test(k) && /lookupid/i.test(k));
-
-  // If no LookupId fields found, the columns might be text or named differently
-  if (!evalLookupKey && !agentLookupKey) {
-    // Try reading as plain text fields
-    const evalNameKey = fieldNames.find((k) => /evaluator/i.test(k) && !/lookup/i.test(k));
-    const agentNameKey = fieldNames.find((k) => /agent/i.test(k) && !/lookup/i.test(k) && !/cxone/i.test(k));
-
-    if (evalNameKey || agentNameKey) {
-      return items.map((item) => ({
-        id: item.id,
-        evaluatorName: item.fields?.[evalNameKey] || "",
-        evaluatorEmail: "",
-        agentName: item.fields?.[agentNameKey] || "",
-        active: item.fields?.Active !== false,
-      })).filter((r) => r.active && r.agentName);
-    }
-
-    // Nothing matched — throw helpful error with actual field names
-    throw new Error(`Could not find Evaluator/Agent columns. Fields found: ${fieldNames.join(", ")}`);
-  }
-
-  // Person columns found — resolve LookupIds to names
-  const lookupIds = new Set();
-  items.forEach((item) => {
-    if (evalLookupKey && item.fields?.[evalLookupKey]) lookupIds.add(item.fields[evalLookupKey]);
-    if (agentLookupKey && item.fields?.[agentLookupKey]) lookupIds.add(item.fields[agentLookupKey]);
-  });
-
-  const userMap = await resolveUsers(token, lookupIds);
-
-  return items
-    .map((item) => {
-      const evalId = evalLookupKey ? item.fields?.[evalLookupKey] : null;
-      const agentId = agentLookupKey ? item.fields?.[agentLookupKey] : null;
-      return {
-        id: item.id,
-        evaluatorName: userMap[evalId]?.name || "",
-        evaluatorEmail: userMap[evalId]?.email || "",
-        agentName: userMap[agentId]?.name || "",
-        active: item.fields?.Active !== false,
-      };
-    })
-    .filter((r) => r.active && r.agentName);
-}
-
-async function fetchAssignments(token, weekOf) {
-  const listId = await getListId(token, sharepointConfig.assignmentsListName);
-  // Fetch all items (no date filter) to avoid date format mismatch issues
-  const data = await graphFetch(token,
-    `/lists/${listId}/items?$expand=fields&$top=500`
-  );
-  return (data.value || []).map((item) => ({
-    id: item.id,
-    ...item.fields,
+// Evaluator → agent pairings (managed on the Settings page).
+async function fetchEvaluatorAgents() {
+  const data = await listEvaluatorPairs();
+  return (data.pairs || []).map((p) => ({
+    evaluatorName: p.evaluator_name,
+    evaluatorEmail: p.evaluator_email,
+    agentName: p.agent_name,
+    agentCxoneId: p.cxone_agent_id,
   }));
 }
 
-// Fetch screening records keyed by ContactId so the Completed tab can show scores.
-async function fetchScreeningsByContactId(token) {
-  const listId = await getListId(token, sharepointConfig.listName);
-  const data = await graphFetch(token,
-    `/lists/${listId}/items?$expand=fields&$top=500`
-  );
-  const map = {};
-  for (const item of data.value || []) {
-    const f = item.fields || {};
-    const cid = String(f.ContactId || f.ContactID || "").trim();
-    if (!cid) continue;
-    // Keep the most recent screening for each contact id
-    const dateStr = f.SubmissionDate || f.Created || item.createdDateTime;
-    const tsNew = dateStr ? new Date(dateStr).getTime() : 0;
-    const existing = map[cid];
-    if (!existing || (existing._ts || 0) < tsNew) {
-      map[cid] = {
-        scorePercent: Number(f.ScorePercent ?? f.TotalScore ?? 0),
-        passFail: f.PassFail || ((Number(f.ScorePercent ?? 0)) >= 80 ? "Pass" : "Fail"),
-        evaluatorName: f.Evaluator || f.EvaluatorName || "",
-        submissionDate: dateStr,
-        _ts: tsNew,
-      };
-    }
-  }
-  return map;
-}
-
-async function saveAssignment(token, fields) {
-  const listId = await getListId(token, sharepointConfig.assignmentsListName);
-  return graphPost(token,
-    `/lists/${listId}/items`,
-    { fields }
-  );
-}
-
-async function updateStatus(token, itemId, status) {
-  const listId = await getListId(token, sharepointConfig.assignmentsListName);
-  return graphPatch(token,
-    `/lists/${listId}/items/${itemId}/fields`,
-    { Status: status }
-  );
-}
-
-async function deleteAssignmentItem(token, itemId) {
-  const listId = await getListId(token, sharepointConfig.assignmentsListName);
-  const res = await fetch(
-    `${GRAPH_BASE}/lists/${listId}/items/${itemId}`,
-    {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-    }
-  );
-  if (!res.ok && res.status !== 204) {
-    throw new Error(`Delete failed (${res.status})`);
-  }
+// Saved assignments, in the field shape this screen was built around.
+async function fetchAssignments() {
+  const data = await listAssignments();
+  return (data.assignments || []).map((x) => ({
+    id: x.id,
+    Evaluator: x.evaluator_name,
+    Agent: x.agent_name,
+    ContactId: x.contact_id,
+    Channel: x.channel,
+    InteractionDate: x.interaction_date,
+    Duration: x.duration_seconds,
+    SkillName: x.skill_name,
+    WeekOf: x.week_of,
+    Status: x.status,
+    screening: x.screening_id
+      ? { scorePercent: x.score_percent, passFail: x.pass_fail }
+      : null,
+  }));
 }
 
 // ── Helper: get Monday of the week ─────────────────────────────────────────
@@ -327,7 +148,6 @@ function getNextMonday() {
 // ── Component ───────────────────────────────────────────────────────────────
 
 export default function Assignments({ onScreen, refreshKey = 0 }) {
-  const { instance, accounts } = useMsal();
   const [assignments, setAssignments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
@@ -338,19 +158,6 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
   const [expandedEvals, setExpandedEvals] = useState({});
   // "pending" (default) shows only un-screened assignments; "completed" shows the rest
   const [view, setView] = useState("pending");
-  // Score lookup keyed by ContactId, populated from Support Quality Assurance list
-  const [scoreByContactId, setScoreByContactId] = useState({});
-
-  // Get access token
-  const getToken = useCallback(async () => {
-    try {
-      const res = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
-      return res.accessToken;
-    } catch {
-      const res = await instance.acquireTokenPopup(loginRequest);
-      return res.accessToken;
-    }
-  }, [instance, accounts]);
 
   // Load assignments for current week
   useEffect(() => {
@@ -358,13 +165,7 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
       setLoading(true);
       setError(null);
       try {
-        const token = await getToken();
-        const [data, scores] = await Promise.all([
-          fetchAssignments(token, weekOf),
-          fetchScreeningsByContactId(token).catch(() => ({})),
-        ]);
-        setAssignments(data);
-        setScoreByContactId(scores);
+        setAssignments(await fetchAssignments());
       } catch (err) {
         setError(err.message);
       } finally {
@@ -372,7 +173,7 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
       }
     }
     load();
-  }, [weekOf, getToken, refreshKey]);
+  }, [weekOf, refreshKey]);
 
   // Generate assignments
   async function handleGenerate() {
@@ -381,18 +182,10 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
     setGenErrors([]);
 
     try {
-      const token = await getToken();
-
-      // 1. Read evaluator-agent config from SharePoint
-      // Debug: also fetch raw list data to diagnose issues
-      const listId = await getListId(token, sharepointConfig.evaluatorAgentsListName);
-      const rawData = await graphFetch(token, `/lists/${listId}/items?$expand=fields&$top=5`);
-      const rawItems = rawData.value || [];
-      const rawFieldNames = rawItems.length > 0 ? Object.keys(rawItems[0].fields || {}).filter(k => !k.startsWith("@")).join(", ") : "NO ITEMS";
-
-      const config = await fetchEvaluatorAgents(token);
+      // 1. Evaluator → agent pairings
+      const config = await fetchEvaluatorAgents();
       if (config.length === 0) {
-        setError(`No evaluator-agent mappings found. List has ${rawItems.length} items. Fields: ${rawFieldNames}`);
+        setError("No evaluator pairings yet. A manager can add them on the Settings page.");
         setGenerating(false);
         return;
       }
@@ -421,36 +214,29 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
       const result = await res.json();
       if (result.errors?.length) setGenErrors(result.errors);
 
-      // 3. Save each interaction as a row in QA_Assignments
+      // 3. Save the picked interactions
       const newWeekOf = result.weekOf;
-
+      const rows = [];
       for (const assignment of result.assignments) {
         for (const interaction of assignment.interactions) {
-          // Format dates as ISO strings for SharePoint
-          const weekDate = newWeekOf ? new Date(newWeekOf + "T00:00:00Z").toISOString() : null;
-          const intDate = interaction.interactionDate
-            ? new Date(interaction.interactionDate).toISOString()
-            : null;
-
-          const fields = {
-            Evaluator: assignment.evaluatorName || "",
-            Agent: assignment.agentName || "",
-            ContactId: String(interaction.contactId || ""),
-            Channel: interaction.channel || "Phone",
-            Duration: Math.round(Number(interaction.duration) || 0),
-            SkillName: interaction.skillName || "",
-          };
-          if (weekDate) fields.WeekOf = weekDate;
-          if (intDate) fields.InteractionDate = intDate;
-
-          await saveAssignment(token, fields);
+          rows.push({
+            evaluatorName: assignment.evaluatorName || "",
+            evaluatorEmail: assignment.evaluatorEmail || "",
+            agentName: assignment.agentName || "",
+            agentCxoneId: assignment.agentCxoneId || null,
+            contactId: String(interaction.contactId || ""),
+            channel: interaction.channel || "Phone",
+            interactionDate: interaction.interactionDate || null,
+            duration: Math.round(Number(interaction.duration) || 0),
+            skillName: interaction.skillName || "",
+          });
         }
       }
+      if (rows.length > 0) await saveAssignments({ weekOf: newWeekOf, assignments: rows });
 
       // 4. Refresh the list
       setWeekOf(newWeekOf);
-      const updated = await fetchAssignments(token, newWeekOf);
-      setAssignments(updated);
+      setAssignments(await fetchAssignments());
     } catch (err) {
       setError(err.message);
     } finally {
@@ -462,8 +248,7 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
   async function toggleStatus(item) {
     const newStatus = item.Status === "Completed" ? "Pending" : "Completed";
     try {
-      const token = await getToken();
-      await updateStatus(token, item.id, newStatus);
+      await setAssignmentStatus(item.id, newStatus);
       setAssignments((prev) =>
         prev.map((a) => (a.id === item.id ? { ...a, Status: newStatus } : a))
       );
@@ -478,8 +263,7 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
     );
     if (!confirmed) return;
     try {
-      const token = await getToken();
-      await deleteAssignmentItem(token, item.id);
+      await apiDeleteAssignment(item.id);
       setAssignments((prev) => prev.filter((a) => a.id !== item.id));
     } catch (err) {
       setError(`Could not delete: ${err.message}`);
@@ -708,7 +492,7 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
                           </thead>
                           <tbody>
                             {agents[agentName].map((item) => {
-                              const screening = scoreByContactId[String(item.ContactId || "").trim()];
+                              const screening = item.screening;
                               return (
                               <tr key={item.id}>
                                 <td style={{ ...s.td, ...s.contactId }}>{item.ContactId}</td>

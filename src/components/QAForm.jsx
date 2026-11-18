@@ -1,10 +1,10 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useMsal } from "@azure/msal-react";
 import { loginRequest } from "../authConfig";
-import { submitQARecord, sendScoreEmail, uploadAttachments, markAssignmentCompleted } from "../sharepointService";
+import { sendScoreEmail } from "../emailService";
 import { QA_QUESTIONS_BY_CHANNEL, CHANNELS, calculateScore } from "../questions";
 import { COLORS, FONTS, GRADIENT } from "../brand";
-import { qaFetch } from "../qaApi";
+import { qaFetch, createScreening, updateScreening, uploadAttachment } from "../qaApi";
 
 // ── CXone agent roster ─────────────────────────────────────────────────────
 
@@ -492,7 +492,10 @@ function scoreColor(pct) {
   return { border: COLORS.fail, text: COLORS.fail, bar: "#EF5350", bg: COLORS.failBg };
 }
 
-export default function QAForm({ prefill, onDone }) {
+// editScreening: a screening from GET /api/screenings/<id>. When given, the
+// form edits that screening instead of creating a new one.
+export default function QAForm({ prefill, onDone, editScreening = null }) {
+  const editing = !!editScreening;
   const { instance, accounts } = useMsal();
   const [accessToken, setAccessToken] = useState(null);
 
@@ -514,33 +517,41 @@ export default function QAForm({ prefill, onDone }) {
     if (accounts[0]) getToken();
   }, [instance, accounts]);
 
-  const [channel, setChannel] = useState(prefill?.channel || "Phone");
+  const [channel, setChannel] = useState(editScreening?.channel || prefill?.channel || "Phone");
   const questions = QA_QUESTIONS_BY_CHANNEL[channel];
   const categories = useMemo(() => [...new Set(questions.map((q) => q.category))], [questions]);
 
-  const initialAnswers = Object.fromEntries(questions.map((q) => [q.field, null]));
+  const initialAnswers = Object.fromEntries(
+    questions.map((q) => [q.field, editScreening?.answers?.[q.field] || null])
+  );
   const [answers, setAnswers] = useState(initialAnswers);
-  const [agentName, setAgentName] = useState(prefill?.agentName || "");
-  const [agentEmail, setAgentEmail] = useState(prefill?.agentEmail || "");
-  const [evaluatorName, setEvaluatorName] = useState(signedInName);
-  const [suggestions, setSuggestions] = useState("");
+  const [agentName, setAgentName] = useState(editScreening?.agent_name || prefill?.agentName || "");
+  const [agentEmail, setAgentEmail] = useState(editScreening?.agent_email || prefill?.agentEmail || "");
+  // The evaluator is whoever is signed in (the QA service records it); when
+  // editing, it stays the original evaluator.
+  const [evaluatorName, setEvaluatorName] = useState(editScreening?.evaluator_name || signedInName);
+  const [suggestions, setSuggestions] = useState(editScreening?.suggestions || "");
   const [attachments, setAttachments] = useState([]); // File[] from <input type="file">
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(false);
   const [error, setError] = useState(null);
-  // After submit, surfaces any SharePoint columns we tried to write to but couldn't
-  const [dropWarning, setDropWarning] = useState(null);
+  // After submit: files that didn't upload, and whether an edit changed anything
+  const [uploadWarning, setUploadWarning] = useState(null);
+  const [saveChanged, setSaveChanged] = useState(true);
 
   // Pre-fill context info shown at top of form when coming from an assignment
   // ContactID: pre-fill from assignment if launched from Screen; otherwise let user enter manually.
-  const [contactId, setContactId] = useState(prefill?.contactId || "");
+  const [contactId, setContactId] = useState(editScreening?.contact_id || prefill?.contactId || "");
   const skillName = prefill?.skillName || "";
-  const assignmentId = prefill?.assignmentId || null;
-  const interactionDate = prefill?.interactionDate || "";
+  const assignmentId = editing ? null : prefill?.assignmentId || null;
+  const interactionDate = editScreening?.interaction_date || prefill?.interactionDate || "";
 
+  // Every channel uses the same questions today, so answers carry over
+  // instead of being wiped when the evaluator switches channel.
   function handleChannelChange(newChannel) {
     setChannel(newChannel);
-    setAnswers(Object.fromEntries(QA_QUESTIONS_BY_CHANNEL[newChannel].map((q) => [q.field, null])));
+    const fields = QA_QUESTIONS_BY_CHANNEL[newChannel].map((q) => q.field);
+    setAnswers((prev) => Object.fromEntries(fields.map((f) => [f, prev[f] ?? null])));
   }
 
   const { totalScore, scorePercent, passFail, answered, naCount, scoredCount } = useMemo(() => {
@@ -561,61 +572,54 @@ export default function QAForm({ prefill, onDone }) {
   const colors = scoreColor(scorePercent);
 
   async function doSubmission(accessToken) {
-    // 1. Save the QA record and capture the newly-created item id (needed for attachments)
-    const record = await submitQARecord(accessToken, {
-      ...answers,
-      AgentName: agentName.trim(),
-      AgentEmail: agentEmail.trim(),
-      EvaluatorName: evaluatorName.trim(),
-      Channel: channel,
-      ContactId: contactId,
-      InteractionDate: interactionDate,
-      SuggestionsForImprovement: suggestions.trim(),
-      TotalScore: totalScore,
-      ScorePercent: scorePercent,
-      PassFail: passFail,
-    });
+    // 1. Save to the QA service. It scores the answers itself, records the
+    //    evaluator from the sign-in, marks the assignment completed, and
+    //    keeps a history of edits.
+    const body = {
+      agentName: agentName.trim(),
+      agentEmail: agentEmail.trim(),
+      channel,
+      contactId: String(contactId || "").trim(),
+      interactionDate: interactionDate || null,
+      answers,
+      suggestions: suggestions.trim(),
+    };
+    if (assignmentId) body.assignmentId = assignmentId;
+    const saved = editing
+      ? await updateScreening(editScreening.id, body)
+      : await createScreening(body);
+    setSaveChanged(!editing || saved.changed !== false);
 
-    // Surface diagnostic info if any fields were dropped due to column-name mismatch
-    if (record?._droppedFields?.length > 0) {
-      setDropWarning({
-        dropped: record._droppedFields,
-        detected: record._detectedColumns || [],
-      });
-    }
-
-    // 2. Upload attachments if any were chosen
-    if (attachments.length > 0 && record?.Id) {
+    // 2. Upload call recordings / files to the saved screening
+    const failed = [];
+    for (const file of attachments) {
       try {
-        await uploadAttachments(accessToken, record.Id, attachments);
+        await uploadAttachment(saved.id, file);
       } catch (attErr) {
-        console.warn("Attachment upload failed:", attErr.message);
+        failed.push(`${file.name}: ${attErr.message}`);
       }
     }
+    setUploadWarning(failed.length ? failed : null);
 
-    // 3. Send the score email (best-effort, only if agent email is known)
-    if (agentEmail.trim()) {
+    // 3. Email the agent their score: always for a new screening, and for an
+    //    edit only when the score or result changed. Best-effort.
+    const scoreChanged = !editing || (saved.changed && (saved.changes?.score_percent || saved.changes?.pass_fail));
+    const emailTo = (saved.agent_email || agentEmail).trim();
+    if (emailTo && scoreChanged) {
       try {
         await sendScoreEmail(accessToken, {
-          agentName: agentName.trim(),
-          agentEmail: agentEmail.trim(),
-          evaluatorName: evaluatorName.trim(),
-          channel,
-          scorePercent,
-          totalScore,
-          passFail,
+          agentName: saved.agent_name,
+          agentEmail: emailTo,
+          evaluatorName: editing ? signedInName : saved.evaluator_name,
+          channel: saved.channel,
+          scorePercent: saved.score_percent,
+          scoreEarned: saved.score_earned,
+          scoreTotal: saved.score_total,
+          passFail: saved.pass_fail,
+          updated: editing,
         });
       } catch (emailErr) {
         console.warn("Score email could not be sent:", emailErr.message);
-      }
-    }
-
-    // 4. If this screening came from an assignment, mark it completed (best-effort)
-    if (assignmentId) {
-      try {
-        await markAssignmentCompleted(accessToken, assignmentId);
-      } catch (markErr) {
-        console.warn("Could not mark assignment completed:", markErr.message);
       }
     }
   }
@@ -659,7 +663,7 @@ export default function QAForm({ prefill, onDone }) {
     setSuggestions("");
     setAttachments([]);
     setContactId("");
-    setDropWarning(null);
+    setUploadWarning(null);
     setSubmitted(false);
     setError(null);
   }
@@ -673,7 +677,7 @@ export default function QAForm({ prefill, onDone }) {
           </div>
           <div style={styles.successBox}>
             <div style={styles.successCircle}>{"\u2714"}</div>
-            <h2 style={{ margin: "0 0 8px", color: COLORS.orange, fontFamily: FONTS.heading }}>Screening Submitted</h2>
+            <h2 style={{ margin: "0 0 8px", color: COLORS.orange, fontFamily: FONTS.heading }}>{editing ? "Changes Saved" : "Screening Submitted"}</h2>
             <p style={{ color: COLORS.gray, margin: "0 0 8px" }}>
               <strong>{agentName}</strong> {"\u00B7"} {channel} {"\u00B7"} evaluated by <strong>{evaluatorName}</strong>
             </p>
@@ -703,38 +707,25 @@ export default function QAForm({ prefill, onDone }) {
               </span>
             </div>
 
-            {/* Diagnostic: surface column mismatch so we can fix the name map */}
-            {dropWarning && dropWarning.dropped.length > 0 && (
+            {editing && !saveChanged && (
+              <p style={{ color: COLORS.midGray, fontSize: 13 }}>No changes were made, so nothing was recorded.</p>
+            )}
+            {uploadWarning && (
               <div style={{
-                marginTop: 4,
-                padding: "12px 16px",
-                background: COLORS.warningBg,
-                border: `1.5px solid ${COLORS.clementine}`,
-                borderRadius: 8,
-                fontSize: 13,
-                textAlign: "left",
-                color: "#795548",
+                marginTop: 4, padding: "12px 16px", background: COLORS.warningBg,
+                border: `1.5px solid ${COLORS.clementine}`, borderRadius: 8,
+                fontSize: 13, textAlign: "left", color: "#795548",
               }}>
                 <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                  \u26A0 {dropWarning.dropped.length} field{dropWarning.dropped.length !== 1 ? "s" : ""} weren't saved (column-name mismatch)
+                  {"\u26A0"} The screening was saved, but these files didn't upload:
                 </div>
-                <div style={{ fontSize: 12, marginBottom: 8 }}>
-                  We tried to save these but SharePoint didn't recognize them:
-                </div>
-                <div style={{ fontFamily: "monospace", fontSize: 11, background: COLORS.white, padding: 8, borderRadius: 4, marginBottom: 8 }}>
-                  {dropWarning.dropped.join(", ")}
-                </div>
-                <div style={{ fontSize: 12, marginBottom: 4 }}>
-                  Detected columns on the list (share this so we can update the mapping):
-                </div>
-                <div style={{ fontFamily: "monospace", fontSize: 10, background: COLORS.white, padding: 8, borderRadius: 4, maxHeight: 120, overflowY: "auto" }}>
-                  {dropWarning.detected.join(" \u00B7 ")}
-                </div>
+                {uploadWarning.map((w) => <div key={w}>{w}</div>)}
+                <div style={{ marginTop: 6 }}>Open the screening from the Dashboard and use Edit to try again.</div>
               </div>
             )}
             <br />
             <div style={{ display: "flex", gap: 10, justifyContent: "center" }}>
-              {assignmentId && (
+              {(assignmentId || editing) && (
                 <button
                   onClick={() => onDone && onDone()}
                   style={{
@@ -749,10 +740,10 @@ export default function QAForm({ prefill, onDone }) {
                     cursor: "pointer",
                   }}
                 >
-                  Back to Assignments
+                  {editing ? "Done" : "Back to Assignments"}
                 </button>
               )}
-              <button
+              {!editing && <button
                 onClick={resetForm}
                 style={{
                   padding: "10px 28px",
@@ -767,7 +758,7 @@ export default function QAForm({ prefill, onDone }) {
                 }}
               >
                 Start New Screening
-              </button>
+              </button>}
             </div>
           </div>
         </div>
@@ -780,7 +771,7 @@ export default function QAForm({ prefill, onDone }) {
       <div style={styles.card}>
         {/* Header */}
         <div style={styles.header}>
-          <h1 style={styles.headerTitle}>Support Quality Assurance</h1>
+          <h1 style={styles.headerTitle}>{editing ? "Edit Screening" : "Support Quality Assurance"}</h1>
           <p style={styles.headerSub}>
             {channel} {"\u00B7"} 20 criteria {"\u00B7"} Yes / No / N/A {"\u00B7"} N/A excluded from score {"\u00B7"} Pass threshold: 80%
           </p>
@@ -788,7 +779,20 @@ export default function QAForm({ prefill, onDone }) {
 
         <form onSubmit={handleSubmit} style={styles.body}>
           {/* Assignment context banner */}
-          {contactId && (
+          {editing && (
+            <div style={{
+              background: "#EEF6FC", border: `1.5px solid ${COLORS.sky}`, borderRadius: 8,
+              padding: "10px 14px", marginBottom: 16, fontSize: 13, color: COLORS.gray,
+            }}>
+              <strong style={{ color: COLORS.sky }}>Editing a saved screening</strong>
+              <div style={{ marginTop: 4, fontSize: 12 }}>
+                Every change is recorded with your name and the time.
+                {(editScreening.answers && Object.keys(editScreening.answers).length < questions.length) &&
+                  " This screening was imported with some answers missing, so please answer every question."}
+              </div>
+            </div>
+          )}
+          {contactId && !editing && (
             <div
               style={{
                 background: "#FEF3E2",
@@ -998,9 +1002,15 @@ export default function QAForm({ prefill, onDone }) {
           {/* Attachments */}
           <div style={{ marginTop: 20 }}>
             <label style={styles.label}>Attachments (call recording, transcript, etc.)</label>
+            {editing && (editScreening.attachments || []).length > 0 && (
+              <div style={{ fontSize: 12, color: COLORS.midGray, marginBottom: 6 }}>
+                Already attached: {editScreening.attachments.map((a) => a.filename).join(", ")}
+              </div>
+            )}
             <input
               type="file"
               multiple
+              accept="audio/*,video/*,image/*,application/pdf,text/plain"
               onChange={(e) => setAttachments(Array.from(e.target.files || []))}
               style={{
                 display: "block",
@@ -1045,7 +1055,7 @@ export default function QAForm({ prefill, onDone }) {
           )}
 
           <button type="submit" style={styles.submitBtn(!allAnswered || submitting)} disabled={!allAnswered || submitting}>
-            {submitting ? "Submitting\u2026" : "Submit Screening"}
+            {submitting ? "Saving\u2026" : editing ? "Save Changes" : "Submit Screening"}
           </button>
         </form>
       </div>
