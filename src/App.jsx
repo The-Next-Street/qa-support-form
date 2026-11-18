@@ -5,6 +5,8 @@ import { msalInstance } from "./msalInstance";
 import { COLORS, FONTS, GRADIENT } from "./brand";
 import QAForm from "./components/QAForm";
 import Dashboard from "./components/Dashboard";
+import Screenings from "./components/Screenings";
+import { defaultFilters } from "./components/ui";
 import Assignments from "./components/Assignments";
 import ManagerReview from "./components/ManagerReview";
 import Settings from "./components/Settings";
@@ -95,11 +97,19 @@ function SignInPage() {
 
 // ── Navigation Bar ──────────────────────────────────────────────────────────
 
+const NAV_TABS = [
+  { key: "dashboard", label: "Dashboard" },
+  { key: "screenings", label: "Screenings" },
+  { key: "assignments", label: "Assignments" },
+  { key: "review", label: "Manager Review" },
+];
+
 function NavBar({ page, setPage, isManager }) {
   const { accounts, instance } = useMsal();
+  const tabs = [...NAV_TABS, ...(isManager ? [{ key: "settings", label: "Settings" }] : [])];
 
   return (
-    <div
+    <nav
       style={{
         background: COLORS.charcoal,
         color: "rgba(255,255,255,0.7)",
@@ -108,53 +118,68 @@ function NavBar({ page, setPage, isManager }) {
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
+        gap: 12,
+        flexWrap: "wrap",
         fontFamily: FONTS.body,
       }}
     >
-      {/* Left: brand + nav tabs */}
-      <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+      {/* Left: brand + sections */}
+      <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap" }}>
         <span
           style={{
             fontFamily: FONTS.heading,
             fontWeight: 700,
             color: COLORS.orange,
             fontSize: 14,
-            marginRight: 24,
-            padding: "10px 0",
+            marginRight: 20,
+            padding: "12px 0",
           }}
         >
           TNS Quality Assurance
         </span>
-        {[
-          { key: "dashboard", label: "Dashboard" },
-          { key: "assignments", label: "Assignments" },
-          { key: "review", label: "Manager Review" },
-          { key: "form", label: "New Screening" },
-          ...(isManager ? [{ key: "settings", label: "Settings" }] : []),
-        ].map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setPage(tab.key)}
-            style={{
-              background: "none",
-              border: "none",
-              borderBottom: page === tab.key ? `2px solid ${COLORS.orange}` : "2px solid transparent",
-              color: page === tab.key ? COLORS.white : "rgba(255,255,255,0.5)",
-              padding: "10px 16px",
-              fontSize: 13,
-              fontWeight: 600,
-              fontFamily: FONTS.heading,
-              cursor: "pointer",
-              transition: "all 0.15s",
-            }}
-          >
-            {tab.label}
-          </button>
-        ))}
+        {tabs.map((tab) => {
+          const on = page === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setPage(tab.key)}
+              aria-current={on ? "page" : undefined}
+              style={{
+                background: "none",
+                border: "none",
+                borderBottom: on ? `2px solid ${COLORS.orange}` : "2px solid transparent",
+                color: on ? COLORS.white : "rgba(255,255,255,0.6)",
+                padding: "12px 14px 10px",
+                fontSize: 13,
+                fontWeight: 600,
+                fontFamily: FONTS.heading,
+                cursor: "pointer",
+              }}
+            >
+              {tab.label}
+            </button>
+          );
+        })}
       </div>
 
-      {/* Right: user + sign out */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+      {/* Right: main action + user */}
+      <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "6px 0" }}>
+        <button
+          onClick={() => setPage("form")}
+          style={{
+            background: page === "form" ? COLORS.white : COLORS.orange,
+            color: page === "form" ? COLORS.orange : COLORS.white,
+            border: "none",
+            borderRadius: 6,
+            padding: "6px 14px",
+            fontSize: 13,
+            fontWeight: 700,
+            fontFamily: FONTS.heading,
+            cursor: "pointer",
+          }}
+        >
+          + New screening
+        </button>
         <span style={{ fontSize: 12 }}>
           {accounts[0]?.name || accounts[0]?.username}
         </span>
@@ -174,7 +199,7 @@ function NavBar({ page, setPage, isManager }) {
           Sign out
         </button>
       </div>
-    </div>
+    </nav>
   );
 }
 
@@ -182,13 +207,19 @@ function NavBar({ page, setPage, isManager }) {
 
 function AppContent() {
   const [page, setPage] = useState("dashboard");
+  // where to go back to after an edit
+  const [returnPage, setReturnPage] = useState("dashboard");
   // prefill holds data passed from Assignments → QAForm (and the assignment id to mark completed)
   const [prefill, setPrefill] = useState(null);
   // bumped after a screening submit so Assignments / Dashboard re-fetch
   const [refreshKey, setRefreshKey] = useState(0);
-  // the screening being edited (from the Dashboard's detail panel)
+  // the screening being edited (from a detail panel)
   const [editScreening, setEditScreening] = useState(null);
   const [isManager, setIsManager] = useState(false);
+  // team + date range, shared by Dashboard and Screenings
+  const [filters, setFilters] = useState(defaultFilters);
+  // filters handed to the Screenings page from the Dashboard (e.g. one agent, fails only)
+  const [listFilters, setListFilters] = useState(null);
   const { accounts } = useMsal();
 
   // Ask the QA service whether the signed-in person is a manager (it decides;
@@ -200,6 +231,7 @@ function AppContent() {
 
   function openEdit(screening) {
     setPrefill(null);
+    setReturnPage(page);
     setEditScreening(screening);
     setPage("form");
   }
@@ -209,12 +241,18 @@ function AppContent() {
     setPage("form");
   }
 
+  function openScreenings(list) {
+    setListFilters({ ...list });
+    setPage("screenings");
+  }
+
   function handleTabChange(newPage) {
-    // When manually switching to "form" tab, clear any prefill (user wants a fresh screening)
+    // Opening "New screening" from the nav always starts a fresh screening
     if (newPage === "form") {
       setPrefill(null);
       setEditScreening(null);
     }
+    if (newPage === "screenings") setListFilters({});
     setPage(newPage);
   }
 
@@ -223,15 +261,22 @@ function AppContent() {
     setPrefill(null);
     setEditScreening(null);
     setRefreshKey((k) => k + 1);
-    setPage(wasEdit ? "dashboard" : "assignments");
+    setPage(wasEdit ? returnPage : "assignments");
   }
+
+  // Start each screen at the top
+  useEffect(() => { window.scrollTo?.(0, 0); }, [page]);
+
+  const shared = { refreshKey, onEdit: openEdit, filters, onFiltersChange: setFilters };
 
   return (
     <>
       <AuthenticatedTemplate>
         <NavBar page={page} setPage={handleTabChange} isManager={isManager} />
         {page === "dashboard" ? (
-          <Dashboard refreshKey={refreshKey} onEdit={openEdit} />
+          <Dashboard {...shared} onOpenScreenings={openScreenings} />
+        ) : page === "screenings" ? (
+          <Screenings {...shared} initialListFilters={listFilters} onNew={() => handleTabChange("form")} />
         ) : page === "assignments" ? (
           <Assignments onScreen={openScreeningFromAssignment} refreshKey={refreshKey} />
         ) : page === "review" ? (

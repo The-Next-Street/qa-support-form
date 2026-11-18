@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { COLORS, FONTS, GRADIENT } from "../brand";
+import { headerStyles } from "./ui";
 import {
   qaFetch, listEvaluatorPairs, listAssignments, saveAssignments,
   setAssignmentStatus, deleteAssignment as apiDeleteAssignment,
@@ -9,10 +10,8 @@ import {
 
 const s = {
   page: { minHeight: "100vh", background: COLORS.offWhite, padding: "24px 16px", fontFamily: FONTS.body },
-  card: { maxWidth: 1100, margin: "0 auto", background: COLORS.white, borderRadius: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.08)", overflow: "hidden" },
-  header: { background: GRADIENT.orange, padding: "28px 32px", color: COLORS.white },
-  headerTitle: { margin: 0, fontSize: 24, fontWeight: 700, fontFamily: FONTS.heading },
-  headerSub: { margin: "6px 0 0", fontSize: 14, color: "rgba(255,255,255,0.8)" },
+  card: { maxWidth: 1100, margin: "0 auto", background: COLORS.white, borderRadius: 12, border: "1px solid #E8E8E8", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", overflow: "hidden" },
+  ...headerStyles,
   body: { padding: "28px 32px" },
 
   topBar: { display: "flex", gap: 16, marginBottom: 24, alignItems: "center", flexWrap: "wrap" },

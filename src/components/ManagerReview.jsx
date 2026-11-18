@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { listScreenings, toRecord } from "../qaApi";
 import { COLORS, FONTS, GRADIENT } from "../brand";
+import { headerStyles, localIsoDate } from "./ui";
 
 const DEFAULT_FLAG_THRESHOLD = 60; // Agents with avg below this are flagged for manager review
 // Screenings come from the QA service (see qaApi.js).
@@ -15,11 +16,9 @@ const s = {
   page: { minHeight: "100vh", background: COLORS.offWhite, padding: "24px 16px", fontFamily: FONTS.body },
   card: {
     maxWidth: 1100, margin: "0 auto", background: COLORS.white, borderRadius: 12,
-    boxShadow: "0 4px 24px rgba(0,0,0,0.08)", overflow: "hidden",
+    border: "1px solid #E8E8E8", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", overflow: "hidden",
   },
-  header: { background: GRADIENT.orange, padding: "28px 32px", color: COLORS.white },
-  headerTitle: { margin: 0, fontSize: 24, fontWeight: 700, fontFamily: FONTS.heading },
-  headerSub: { margin: "6px 0 0", fontSize: 14, color: "rgba(255,255,255,0.8)" },
+  ...headerStyles,
   body: { padding: "28px 32px" },
 
   flaggedBanner: {
@@ -140,7 +139,7 @@ export default function ManagerReview({ refreshKey = 0 }) {
     // Default: all-time (today minus a year)
     const end = new Date();
     const start = new Date(end.getTime() - 365 * 24 * 3600 * 1000);
-    return { start: isoDate(start), end: isoDate(end) };
+    return { start: localIsoDate(start), end: localIsoDate(end) };
   });
 
   useEffect(() => {

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useMsal } from "@azure/msal-react";
 import { loginRequest } from "../authConfig";
 import { COLORS, FONTS, GRADIENT } from "../brand";
+import { headerStyles } from "./ui";
 import {
   listAgents, updateAgent, listEvaluatorPairs, createEvaluatorPair, removeEvaluatorPair,
   TEAM_LABELS,
@@ -15,11 +16,11 @@ const s = {
   page: { minHeight: "100vh", background: COLORS.offWhite, padding: "24px 16px", fontFamily: FONTS.body },
   card: {
     maxWidth: 1100, margin: "0 auto 20px", background: COLORS.white, borderRadius: 12,
-    boxShadow: "0 4px 24px rgba(0,0,0,0.08)", overflow: "hidden",
+    border: "1px solid #E8E8E8", boxShadow: "0 1px 3px rgba(0,0,0,0.04)", overflow: "hidden",
   },
-  header: { background: GRADIENT.orange, padding: "24px 32px", color: COLORS.white },
-  title: { margin: 0, fontSize: 22, fontWeight: 700, fontFamily: FONTS.heading },
-  sub: { margin: "6px 0 0", fontSize: 13, color: "rgba(255,255,255,0.85)" },
+  header: headerStyles.header,
+  title: headerStyles.headerTitle,
+  sub: headerStyles.headerSub,
   body: { padding: "22px 32px" },
   h2: { margin: "0 0 4px", fontSize: 17, fontFamily: FONTS.heading, color: COLORS.gray },
   hint: { margin: "0 0 14px", fontSize: 13, color: COLORS.midGray },
