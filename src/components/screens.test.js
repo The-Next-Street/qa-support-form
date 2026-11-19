@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import Dashboard from "./Dashboard";
 import ScreeningDetail from "./ScreeningDetail";
 import QAForm from "./QAForm";
+import ManagerReview from "./ManagerReview";
 import * as api from "../qaApi";
 import { QA_QUESTIONS } from "../questions";
 
@@ -63,12 +64,15 @@ afterEach(() => {
 
 const flush = () => act(async () => { await new Promise((r) => setTimeout(r, 0)); });
 const click = (el) => act(() => { el.dispatchEvent(new MouseEvent("click", { bubbles: true })); });
-const byText = (text) => [...container.querySelectorAll("button, td, span, h1, h2, p, div")]
+// Buttons first, so a tab wins over a label with the same text.
+const byText = (text) => [...container.querySelectorAll("button"), ...container.querySelectorAll("td, span, h1, h2, p, div")]
   .find((el) => el.textContent.trim() === text);
 
-test("dashboard opens on Customer Support and switches teams", async () => {
+test("dashboard: Customer Support by default, team switch, filters and views", async () => {
   await act(async () => root.render(<Dashboard />));
   await flush();
+  // Overview is the default view; switch to the screenings list
+  click(byText("Screenings"));
   const table = () => [...container.querySelectorAll("table")].pop().textContent;
   expect(table()).toContain("Ed Green");
   expect(table()).not.toContain("Lisa Gilmore");
@@ -78,6 +82,17 @@ test("dashboard opens on Customer Support and switches teams", async () => {
   click(byText("All Teams"));
   expect(table()).toContain("Ed Green");
   expect(table()).toContain("Internal Support"); // team column shown on All
+  // Result filter
+  const result = container.querySelector('select[aria-label="Result"]');
+  await act(async () => {
+    result.value = "Fail";
+    result.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  expect(table()).toContain("Lisa Gilmore");
+  expect(table()).not.toContain("Ed Green");
+  // Agents view lists the remaining agent with the most-missed column
+  click(byText("Agents"));
+  expect(container.textContent).toContain("Most missed");
 });
 
 test("detail panel shows history and offers Edit only when allowed", async () => {
@@ -123,4 +138,30 @@ test("edit mode pre-fills the form and saves through updateScreening", async () 
   }));
   expect(api.createScreening).not.toHaveBeenCalled();
   expect(container.textContent).toContain("No changes were made");
+});
+
+test("manager review renders with data (it crashed on a missing date helper)", async () => {
+  await act(async () => root.render(<ManagerReview />));
+  await flush();
+  expect(container.textContent).toContain("Ed Green");
+  expect(container.textContent).toContain("Lisa Gilmore");
+});
+
+test("new screening: Y / N / A keys answer and advance; Submit explains what's missing", async () => {
+  window.localStorage.clear();
+  await act(async () => root.render(<QAForm onDone={() => {}} />));
+  await flush();
+  const press = (key) => act(() => { window.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })); });
+  expect(container.textContent).toContain("Choose the agent to submit.");
+  press("y");
+  press("n");
+  press("a");
+  const groups = container.querySelectorAll('[role="radiogroup"]');
+  const checked = (i) => groups[i].querySelector('[aria-checked="true"]')?.textContent;
+  expect([checked(0), checked(1), checked(2), checked(3)]).toEqual(["Yes", "No", "N/A", undefined]);
+  expect(container.textContent).toContain("3/20 answered");
+  // Draft is kept in this browser
+  await act(async () => { await new Promise((r) => setTimeout(r, 450)); });
+  const draftKey = Object.keys(window.localStorage).find((k) => k.startsWith("qa-draft:"));
+  expect(JSON.parse(window.localStorage.getItem(draftKey)).answers.Greeting).toBe("Yes");
 });
