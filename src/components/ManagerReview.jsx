@@ -113,16 +113,16 @@ const s = {
   },
   td: { padding: "10px 12px", borderBottom: `1px solid ${COLORS.offWhite}`, color: COLORS.gray },
 
-  statsRow: { display: "flex", gap: 16, marginBottom: 28, flexWrap: "wrap" },
+  statsRow: { display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" },
   statCard: (color) => ({
-    flex: "1 1 180px",
-    padding: "20px",
-    borderRadius: 10,
+    flex: "1 1 140px",
+    padding: "10px 14px",
+    borderRadius: 8,
     background: COLORS.white,
-    border: `2px solid ${color}`,
-    textAlign: "center",
+    border: `1px solid ${COLORS.lightGray}`,
+    boxShadow: `inset 3px 0 0 ${color}`,
   }),
-  statNum: (color) => ({ fontSize: 32, fontWeight: 800, fontFamily: FONTS.heading, color, margin: 0 }),
+  statNum: () => ({ fontSize: 20, fontWeight: 700, fontFamily: FONTS.heading, color: COLORS.charcoal, margin: 0 }),
   statLabel: { fontSize: 11, color: COLORS.midGray, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 },
 
   center: { textAlign: "center", padding: "48px 20px", color: COLORS.midGray, fontSize: 15 },
@@ -231,16 +231,16 @@ export default function ManagerReview({ refreshKey = 0 }) {
   }
 
   return (
-    <div style={s.page}>
+    <div className="qa-page" style={s.page}>
       <div style={s.card}>
-        <div style={s.header}>
+        <div className="qa-card-header" style={s.header}>
           <h1 style={s.headerTitle}>Manager Review</h1>
           <p style={s.headerSub}>
             Agents with an average QA score below {threshold}% are flagged for coaching review
           </p>
         </div>
 
-        <div style={s.body}>
+        <div className="qa-card-body" style={s.body}>
           {/* Controls: date range + threshold */}
           {!loading && !error && records.length > 0 && (
             <div style={{

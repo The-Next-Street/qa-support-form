@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { useMsal } from "@azure/msal-react";
 import { COLORS, FONTS, GRADIENT } from "../brand";
 import {
-  qaFetch, listEvaluatorPairs, listAssignments, saveAssignments,
+  nameKey, qaFetch, listEvaluatorPairs, listAssignments, saveAssignments,
   setAssignmentStatus, deleteAssignment as apiDeleteAssignment,
 } from "../qaApi";
 
@@ -36,16 +37,16 @@ const s = {
   },
   label: { fontSize: 13, fontWeight: 600, color: COLORS.gray, marginBottom: 4 },
 
-  statsRow: { display: "flex", gap: 16, marginBottom: 24, flexWrap: "wrap" },
+  statsRow: { display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" },
   statCard: (color) => ({
-    flex: "1 1 140px",
-    padding: "16px",
-    borderRadius: 10,
+    flex: "1 1 120px",
+    padding: "10px 14px",
+    borderRadius: 8,
     background: COLORS.white,
-    border: `2px solid ${color}`,
-    textAlign: "center",
+    border: `1px solid ${COLORS.lightGray}`,
+    boxShadow: `inset 3px 0 0 ${color}`,
   }),
-  statNum: (color) => ({ fontSize: 28, fontWeight: 800, fontFamily: FONTS.heading, color, margin: 0 }),
+  statNum: () => ({ fontSize: 20, fontWeight: 700, fontFamily: FONTS.heading, color: COLORS.charcoal, margin: 0 }),
   statLabel: { fontSize: 11, color: COLORS.midGray, marginTop: 4, textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 },
 
   // Evaluator section
@@ -116,6 +117,7 @@ async function fetchAssignments() {
   return (data.assignments || []).map((x) => ({
     id: x.id,
     Evaluator: x.evaluator_name,
+    EvaluatorEmail: x.evaluator_email,
     Agent: x.agent_name,
     ContactId: x.contact_id,
     Channel: x.channel,
@@ -270,13 +272,31 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
     }
   }
 
+  // "Mine" = assignments for the signed-in evaluator (by email, or by name
+  // for older assignments saved without one).
+  const { accounts } = useMsal();
+  const me = accounts[0] || {};
+  const isMine = useMemo(() => {
+    const myEmail = String(me.username || "").toLowerCase();
+    const myName = nameKey(me.name);
+    return (a) => (myEmail && String(a.EvaluatorEmail || "").toLowerCase() === myEmail)
+      || (myName && nameKey(a.Evaluator) === myName);
+  }, [me.username, me.name]);
+  const mineCount = useMemo(() => assignments.filter(isMine).length, [assignments, isMine]);
+  const [whose, setWhose] = useState(null); // null until we know if there are any of mine
+  const effectiveWhose = whose || (mineCount > 0 ? "mine" : "everyone");
+  const scoped = useMemo(
+    () => (effectiveWhose === "mine" ? assignments.filter(isMine) : assignments),
+    [assignments, effectiveWhose, isMine]
+  );
+
   // Filter assignments by current view (Pending vs Completed)
   const visibleAssignments = useMemo(() => {
-    return assignments.filter((a) => {
+    return scoped.filter((a) => {
       const isCompleted = a.Status === "Completed";
       return view === "completed" ? isCompleted : !isCompleted;
     });
-  }, [assignments, view]);
+  }, [scoped, view]);
 
   // Group visible assignments by evaluator then agent
   const grouped = useMemo(() => {
@@ -295,11 +315,11 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
 
   // Stats
   const stats = useMemo(() => {
-    const total = assignments.length;
-    const completed = assignments.filter((a) => a.Status === "Completed").length;
-    const agents = new Set(assignments.map((a) => a.Agent)).size;
+    const total = scoped.length;
+    const completed = scoped.filter((a) => a.Status === "Completed").length;
+    const agents = new Set(scoped.map((a) => a.Agent)).size;
     return { total, completed, pending: total - completed, agents };
-  }, [assignments]);
+  }, [scoped]);
 
   function toggleEval(name) {
     setExpandedEvals((prev) => ({ ...prev, [name]: !prev[name] }));
@@ -320,14 +340,14 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
   }
 
   return (
-    <div style={s.page}>
+    <div className="qa-page" style={s.page}>
       <div style={s.card}>
-        <div style={s.header}>
+        <div className="qa-card-header" style={s.header}>
           <h1 style={s.headerTitle}>QA Assignments</h1>
           <p style={s.headerSub}>Weekly interaction assignments for quality screening</p>
         </div>
 
-        <div style={s.body}>
+        <div className="qa-card-body" style={s.body}>
           {/* Top controls */}
           <div style={s.topBar}>
             <div>
@@ -361,12 +381,41 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
 
           {/* Pending / Completed toggle */}
           {assignments.length > 0 && (
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
             <div style={{
               display: "inline-flex",
               borderRadius: 8,
               border: `1.5px solid ${COLORS.lightGray}`,
               overflow: "hidden",
-              marginBottom: 16,
+            }}>
+              {[
+                { key: "mine", label: `Mine (${mineCount})` },
+                { key: "everyone", label: `Everyone (${assignments.length})` },
+              ].map((tab) => {
+                const active = effectiveWhose === tab.key;
+                return (
+                  <button
+                    key={tab.key}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setWhose(tab.key)}
+                    style={{
+                      padding: "8px 18px", fontFamily: FONTS.heading, fontSize: 13, fontWeight: 700,
+                      border: "none", cursor: "pointer",
+                      background: active ? COLORS.charcoal : COLORS.white,
+                      color: active ? COLORS.white : COLORS.gray,
+                    }}
+                  >
+                    {tab.label}
+                  </button>
+                );
+              })}
+            </div>
+            <div style={{
+              display: "inline-flex",
+              borderRadius: 8,
+              border: `1.5px solid ${COLORS.lightGray}`,
+              overflow: "hidden",
             }}>
               {[
                 { key: "pending", label: `Pending (${stats.pending})` },
@@ -393,6 +442,7 @@ export default function Assignments({ onScreen, refreshKey = 0 }) {
                   </button>
                 );
               })}
+            </div>
             </div>
           )}
 

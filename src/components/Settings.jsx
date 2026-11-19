@@ -260,9 +260,9 @@ export default function Settings() {
   // Remount the lists after an import so new people and pairings show up.
   const [version, setVersion] = useState(0);
   return (
-    <div style={s.page}>
+    <div className="qa-page" style={s.page}>
       <div style={s.card}>
-        <div style={s.header}>
+        <div className="qa-card-header" style={s.header}>
           <h1 style={s.title}>Settings</h1>
           <p style={s.sub}>Managers only · teams, evaluator pairings and the SharePoint import</p>
         </div>

@@ -9,6 +9,7 @@ import Assignments from "./components/Assignments";
 import ManagerReview from "./components/ManagerReview";
 import Settings from "./components/Settings";
 import { getMe } from "./qaApi";
+import GlobalStyles from "./GlobalStyles";
 
 
 // ── Sign-In Page ────────────────────────────────────────────────────────────
@@ -99,31 +100,37 @@ function NavBar({ page, setPage, isManager }) {
   const { accounts, instance } = useMsal();
 
   return (
-    <div
+    <nav
+      className="qa-nav"
+      aria-label="QA sections"
       style={{
         background: COLORS.charcoal,
         color: "rgba(255,255,255,0.7)",
         fontSize: 13,
-        padding: "0 20px",
+        padding: "0 12px",
         display: "flex",
         justifyContent: "space-between",
         alignItems: "center",
+        gap: 12,
         fontFamily: FONTS.body,
       }}
     >
-      {/* Left: brand + nav tabs */}
-      <div style={{ display: "flex", alignItems: "center", gap: 0 }}>
+      {/* Left: brand + nav tabs (the tabs scroll sideways on phones) */}
+      <div className="qa-nav-tabs" style={{ gap: 0 }}>
         <span
           style={{
             fontFamily: FONTS.heading,
             fontWeight: 700,
             color: COLORS.orange,
             fontSize: 14,
-            marginRight: 24,
+            marginRight: 16,
             padding: "10px 0",
+            whiteSpace: "nowrap",
+            flexShrink: 0,
           }}
         >
-          TNS Quality Assurance
+          TNS <span className="qa-hide-mobile">Quality Assurance</span>
+          <span style={{ display: "none" }} className="qa-show-mobile">QA</span>
         </span>
         {[
           { key: "dashboard", label: "Dashboard" },
@@ -154,8 +161,8 @@ function NavBar({ page, setPage, isManager }) {
       </div>
 
       {/* Right: user + sign out */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-        <span style={{ fontSize: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
+        <span className="qa-nav-user" style={{ fontSize: 12 }}>
           {accounts[0]?.name || accounts[0]?.username}
         </span>
         <button
@@ -174,7 +181,7 @@ function NavBar({ page, setPage, isManager }) {
           Sign out
         </button>
       </div>
-    </div>
+    </nav>
   );
 }
 
@@ -229,6 +236,7 @@ function AppContent() {
 
   return (
     <>
+      <GlobalStyles />
       <AuthenticatedTemplate>
         <NavBar page={page} setPage={handleTabChange} isManager={isManager} />
         {page === "dashboard" ? (

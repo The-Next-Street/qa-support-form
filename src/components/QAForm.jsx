@@ -492,6 +492,40 @@ function scoreColor(pct) {
   return { border: COLORS.fail, text: COLORS.fail, bar: "#EF5350", bg: COLORS.failBg };
 }
 
+// Segmented Yes / No / N/A button.
+function answerBtn(selected, opt) {
+  const on = {
+    Yes: { background: COLORS.green, color: COLORS.white },
+    No: { background: COLORS.fail, color: COLORS.white },
+    "N/A": { background: COLORS.midGray, color: COLORS.white },
+  }[opt];
+  return {
+    fontFamily: FONTS.heading,
+    transition: "background .12s, color .12s",
+    ...(selected ? on : { background: COLORS.white, color: "#8a8a8a" }),
+  };
+}
+
+const DRAFT_PREFIX = "qa-draft:";
+
+function readDraft(key) {
+  try {
+    const raw = window.localStorage.getItem(DRAFT_PREFIX + key);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeDraft(key, value) {
+  try {
+    if (value) window.localStorage.setItem(DRAFT_PREFIX + key, JSON.stringify(value));
+    else window.localStorage.removeItem(DRAFT_PREFIX + key);
+  } catch {
+    // Private windows can block storage; drafts are a convenience only.
+  }
+}
+
 // editScreening: a screening from GET /api/screenings/<id>. When given, the
 // form edits that screening instead of creating a new one.
 export default function QAForm({ prefill, onDone, editScreening = null }) {
@@ -571,6 +605,129 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
   const allAnswered = answered === questions.length && agentName.trim() && evaluatorName.trim();
   const colors = scoreColor(scorePercent);
 
+  // Why Submit is disabled, in plain words (shown under the sticky bar).
+  const remaining = questions.length - answered;
+  const missingReason = !agentName.trim()
+    ? "Choose the agent to submit."
+    : remaining > 0
+      ? `Answer ${remaining} more question${remaining === 1 ? "" : "s"} to submit.`
+      : "";
+
+  // ── Highlighted question + keyboard (Y / N / A) ──
+  const [activeIdx, setActiveIdx] = useState(() => {
+    const first = questions.findIndex((q) => !initialAnswers[q.field]);
+    return first === -1 ? 0 : first;
+  });
+
+  function scrollToQuestion(idx) {
+    const q = questions[idx];
+    const el = q && document.getElementById(`q-${q.field}`);
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function nextUnanswered(fromIdx, current) {
+    for (let step = 1; step <= questions.length; step++) {
+      const i = (fromIdx + step) % questions.length;
+      if (!current[questions[i].field]) return i;
+    }
+    return -1;
+  }
+
+  function answerQuestion(idx, value) {
+    const field = questions[idx].field;
+    const updated = { ...answers, [field]: value };
+    setAnswers(updated);
+    const next = nextUnanswered(idx, updated);
+    const target = next === -1 ? idx : next;
+    setActiveIdx(target);
+    if (next !== -1) scrollToQuestion(target);
+  }
+
+  function jumpToNextUnanswered() {
+    const next = answers[questions[activeIdx]?.field] ? nextUnanswered(activeIdx, answers) : activeIdx;
+    if (next !== -1) {
+      setActiveIdx(next);
+      scrollToQuestion(next);
+    }
+  }
+
+  useEffect(() => {
+    function onKey(e) {
+      if (submitted || e.ctrlKey || e.metaKey || e.altKey) return;
+      const tag = (e.target.tagName || "").toLowerCase();
+      if (["input", "textarea", "select"].includes(tag) || e.target.isContentEditable) return;
+      const key = e.key.toLowerCase();
+      const value = key === "y" ? "Yes" : key === "n" ? "No" : key === "a" ? "N/A" : null;
+      if (value) {
+        e.preventDefault();
+        answerQuestion(activeIdx, value);
+      } else if (key === "arrowdown" || key === "j") {
+        e.preventDefault();
+        const i = Math.min(activeIdx + 1, questions.length - 1);
+        setActiveIdx(i);
+        scrollToQuestion(i);
+      } else if (key === "arrowup" || key === "k") {
+        e.preventDefault();
+        const i = Math.max(activeIdx - 1, 0);
+        setActiveIdx(i);
+        scrollToQuestion(i);
+      }
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  // ── Files: add by picking or dropping ──
+  const [dragOver, setDragOver] = useState(false);
+  function addFiles(fileList) {
+    const files = Array.from(fileList || []);
+    if (files.length) setAttachments((prev) => [...prev, ...files]);
+  }
+
+  // ── Draft auto-save (new screenings only; this browser only) ──
+  const draftKey = editing ? null : `${accounts[0]?.username || "me"}:${assignmentId || "manual"}`;
+  const [draftRestoredAt, setDraftRestoredAt] = useState(null);
+  const draftLoaded = React.useRef(false);
+
+  useEffect(() => {
+    if (!draftKey || draftLoaded.current) return;
+    draftLoaded.current = true;
+    const d = readDraft(draftKey);
+    if (!d || !d.answers) return;
+    setChannel(d.channel || channel);
+    setAnswers((prev) => ({ ...prev, ...d.answers }));
+    if (!prefill?.agentName && d.agentName) {
+      setAgentName(d.agentName);
+      setAgentEmail(d.agentEmail || "");
+    }
+    if (!prefill?.contactId && d.contactId) setContactId(d.contactId);
+    if (d.suggestions) setSuggestions(d.suggestions);
+    setDraftRestoredAt(d.savedAt || null);
+    // eslint-disable-next-line
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!draftKey || !draftLoaded.current || submitted) return;
+    const hasContent = Object.values(answers).some(Boolean) || suggestions.trim();
+    const t = setTimeout(() => {
+      writeDraft(draftKey, hasContent ? {
+        channel, agentName, agentEmail, contactId, answers, suggestions,
+        savedAt: new Date().toISOString(),
+      } : null);
+    }, 400);
+    return () => clearTimeout(t);
+  }, [draftKey, channel, agentName, agentEmail, contactId, answers, suggestions, submitted]);
+
+  function discardDraft() {
+    writeDraft(draftKey, null);
+    setDraftRestoredAt(null);
+    setAnswers(Object.fromEntries(questions.map((q) => [q.field, null])));
+    setSuggestions("");
+    if (!prefill?.agentName) { setAgentName(""); setAgentEmail(""); }
+    if (!prefill?.contactId) setContactId("");
+    setActiveIdx(0);
+  }
+
   async function doSubmission(accessToken) {
     // 1. Save to the QA service. It scores the answers itself, records the
     //    evaluator from the sign-in, marks the assignment completed, and
@@ -589,6 +746,7 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
       ? await updateScreening(editScreening.id, body)
       : await createScreening(body);
     setSaveChanged(!editing || saved.changed !== false);
+    if (draftKey) writeDraft(draftKey, null);
 
     // 2. Upload call recordings / files to the saved screening
     const failed = [];
@@ -670,9 +828,9 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
 
   if (submitted) {
     return (
-      <div style={styles.page}>
+      <div className="qa-page" style={styles.page}>
         <div style={styles.card}>
-          <div style={styles.header}>
+          <div className="qa-card-header" style={styles.header}>
             <h1 style={styles.headerTitle}>Support Quality Assurance</h1>
           </div>
           <div style={styles.successBox}>
@@ -767,18 +925,37 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
   }
 
   return (
-    <div style={styles.page}>
+    <div className="qa-page" style={styles.page}>
       <div style={styles.card}>
         {/* Header */}
-        <div style={styles.header}>
+        <div className="qa-card-header" style={styles.header}>
           <h1 style={styles.headerTitle}>{editing ? "Edit Screening" : "Support Quality Assurance"}</h1>
           <p style={styles.headerSub}>
-            {channel} {"\u00B7"} 20 criteria {"\u00B7"} Yes / No / N/A {"\u00B7"} N/A excluded from score {"\u00B7"} Pass threshold: 80%
+            {channel} {"\u00B7"} {questions.length} questions {"\u00B7"} N/A doesn't count {"\u00B7"} Pass at 80%
+            <span className="qa-hide-mobile"> {"\u00B7"} Keys: <span className="qa-kbd">Y</span> <span className="qa-kbd">N</span> <span className="qa-kbd">A</span> answer the highlighted question</span>
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} style={styles.body}>
+        <form onSubmit={handleSubmit} style={styles.body} className="qa-card-body">
           {/* Assignment context banner */}
+          {draftRestoredAt && (
+            <div style={{
+              background: COLORS.warningBg, border: `1.5px solid ${COLORS.clementine}`, borderRadius: 8,
+              padding: "10px 14px", marginBottom: 16, fontSize: 13, color: "#795548",
+              display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap",
+            }}>
+              <span>
+                Picked up where you left off (saved {new Date(draftRestoredAt).toLocaleString("en-US", {
+                  month: "short", day: "numeric", hour: "numeric", minute: "2-digit",
+                })}). Files need to be attached again.
+              </span>
+              <button type="button" onClick={discardDraft}
+                style={{ border: `1px solid ${COLORS.clementine}`, background: COLORS.white, borderRadius: 6,
+                  padding: "4px 10px", cursor: "pointer", color: "#795548", fontSize: 12 }}>
+                Start over
+              </button>
+            </div>
+          )}
           {editing && (
             <div style={{
               background: "#EEF6FC", border: `1.5px solid ${COLORS.sky}`, borderRadius: 8,
@@ -828,7 +1005,7 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
           {/* Channel selector */}
           <div style={{ marginBottom: 16 }}>
             <label style={styles.label}>Channel *</label>
-            <div style={{ display: "flex", gap: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {CHANNELS.map((ch) => (
                 <button
                   key={ch}
@@ -855,7 +1032,7 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
           </div>
 
           {/* Agent / Evaluator */}
-          <div style={styles.row}>
+          <div className="qa-stack" style={styles.row}>
             <div style={{ ...styles.col, flex: 2 }}>
               <AgentTypeAhead
                 label="Agent Name *"
@@ -878,7 +1055,7 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
           </div>
 
           {/* Contact ID */}
-          <div style={styles.row}>
+          <div className="qa-stack" style={styles.row}>
             <div style={styles.col}>
               <label style={styles.label}>
                 Contact ID
@@ -905,40 +1082,8 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
             </div>
           </div>
 
-          {/* Live score bar */}
-          {answered > 0 && (
-            <div style={{ ...styles.scoreBar, borderColor: colors.border, background: colors.bg }}>
-              <div>
-                <div style={{ ...styles.scoreNum, color: colors.text }}>{scorePercent}%</div>
-                <div style={styles.scoreSub}>
-                  {totalScore} of {scoredCount} scored {"\u00B7"} {answered}/{questions.length} answered
-                  {naCount > 0 ? <> {"\u00B7"} {naCount} N/A excluded</> : null}
-                </div>
-              </div>
-              <div style={styles.progressTrack}>
-                <div
-                  style={{
-                    height: "100%",
-                    width: `${scorePercent}%`,
-                    background: colors.bar,
-                    borderRadius: 5,
-                    transition: "width 0.3s",
-                  }}
-                />
-              </div>
-              <span
-                style={{
-                  ...styles.scoreBadge,
-                  background: colors.border,
-                  color: COLORS.white,
-                }}
-              >
-                {passFail}
-              </span>
-            </div>
-          )}
-
-          {/* Questions grouped by category */}
+          {/* Questions grouped by category. Click a question (or use Y / N / A)
+              to answer; the highlighted question moves on automatically. */}
           {categories.map((cat) => {
             const qs = questions.filter((q) => q.category === cat);
             return (
@@ -947,39 +1092,53 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
                   <span style={styles.sectionPill}>{cat}</span>
                   <div style={styles.sectionLine} />
                 </div>
-                {qs.map((q, idx) => {
+                {qs.map((q) => {
                   const globalIdx = questions.findIndex((x) => x.field === q.field);
-                  const isEven = globalIdx % 2 === 0;
+                  const isActive = globalIdx === activeIdx;
+                  const value = answers[q.field];
                   return (
                     <div
                       key={q.field}
+                      id={`q-${q.field}`}
+                      className="qa-question"
+                      onClick={() => setActiveIdx(globalIdx)}
                       style={{
                         ...styles.questionRow,
-                        background: isEven ? "#FEF9F3" : COLORS.white,
+                        background: isActive ? "#FFF7ED" : value ? COLORS.white : "#FCFCFC",
+                        boxShadow: isActive ? `inset 3px 0 0 ${COLORS.orange}` : "none",
                       }}
                     >
-                      <div style={styles.questionNum}>{globalIdx + 1}</div>
-                      <div style={{ ...styles.questionText }}>
+                      <div style={{
+                        ...styles.questionNum,
+                        background: value === "Yes" ? COLORS.passBg : value === "No" ? COLORS.failBg : styles.questionNum.background,
+                        color: value === "Yes" ? COLORS.green : value === "No" ? COLORS.fail : styles.questionNum.color,
+                      }}>
+                        {value === "Yes" ? "\u2713" : value === "No" ? "\u2715" : globalIdx + 1}
+                      </div>
+                      <div className="qa-question-text" style={styles.questionText}>
                         <div style={{ fontWeight: 600 }}>{q.label}</div>
                         {q.description && (
-                          <div style={{ fontSize: 12, color: COLORS.midGray, marginTop: 4 }}>
+                          <div style={{ fontSize: 12, color: COLORS.midGray, marginTop: 2 }}>
                             {q.description}
                           </div>
                         )}
-                        <div style={styles.toggleGroup}>
-                          {["Yes", "No", "N/A"].map((opt) => (
-                            <button
-                              key={opt}
-                              type="button"
-                              style={styles.toggleBtn(answers[q.field] === opt, opt)}
-                              onClick={() =>
-                                setAnswers((prev) => ({ ...prev, [q.field]: opt }))
-                              }
-                            >
-                              {opt}
-                            </button>
-                          ))}
-                        </div>
+                      </div>
+                      <div className="qa-answer-group" role="radiogroup" aria-label={q.label}>
+                        {["Yes", "No", "N/A"].map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            role="radio"
+                            aria-checked={value === opt}
+                            style={answerBtn(value === opt, opt)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              answerQuestion(globalIdx, opt);
+                            }}
+                          >
+                            {opt}
+                          </button>
+                        ))}
                       </div>
                     </div>
                   );
@@ -1007,28 +1166,46 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
                 Already attached: {editScreening.attachments.map((a) => a.filename).join(", ")}
               </div>
             )}
-            <input
-              type="file"
-              multiple
-              accept="audio/*,video/*,image/*,application/pdf,text/plain"
-              onChange={(e) => setAttachments(Array.from(e.target.files || []))}
-              style={{
-                display: "block",
-                width: "100%",
-                padding: "10px 12px",
-                border: `1.5px dashed ${COLORS.lightGray}`,
-                borderRadius: 8,
-                fontSize: 13,
-                background: COLORS.offWhite,
-                fontFamily: FONTS.body,
-                cursor: "pointer",
-                boxSizing: "border-box",
+            <label
+              className={`qa-dropzone${dragOver ? " is-over" : ""}`}
+              onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOver(false);
+                addFiles(e.dataTransfer.files);
               }}
-            />
+              style={{
+                display: "block", padding: "18px 14px", textAlign: "center", cursor: "pointer",
+                border: `1.5px dashed ${COLORS.lightGray}`, borderRadius: 8, background: COLORS.offWhite,
+                fontSize: 13, color: COLORS.midGray,
+              }}
+            >
+              <strong style={{ color: COLORS.orange }}>Drop the call recording here</strong> or click to choose
+              <div style={{ fontSize: 11, marginTop: 4 }}>Audio, video, images, PDF or text {"\u00B7"} up to 100 MB each</div>
+              <input
+                type="file"
+                multiple
+                accept="audio/*,video/*,image/*,application/pdf,text/plain"
+                onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }}
+                style={{ display: "none" }}
+              />
+            </label>
             {attachments.length > 0 && (
-              <div style={{ marginTop: 8, fontSize: 12, color: COLORS.midGray }}>
-                {attachments.length} file{attachments.length > 1 ? "s" : ""} selected:{" "}
-                {attachments.map((f) => f.name).join(", ")}
+              <div style={{ marginTop: 8, display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {attachments.map((f, i) => (
+                  <span key={`${f.name}-${i}`} style={{
+                    display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 6px 3px 10px",
+                    borderRadius: 14, background: "#FEF3E2", fontSize: 12, color: COLORS.gray,
+                  }}>
+                    {f.name} ({Math.max(1, Math.round(f.size / 1024 / 1024))} MB)
+                    <button type="button" aria-label={`Remove ${f.name}`}
+                      onClick={() => setAttachments((prev) => prev.filter((_, j) => j !== i))}
+                      style={{ border: "none", background: "transparent", cursor: "pointer", color: COLORS.midGray, fontSize: 14 }}>
+                      ×
+                    </button>
+                  </span>
+                ))}
               </div>
             )}
           </div>
@@ -1036,27 +1213,55 @@ export default function QAForm({ prefill, onDone, editScreening = null }) {
           {/* Error */}
           {error && <div style={styles.errorBox}>{"\u26A0\uFE0F"} {error}</div>}
 
-          {/* Unanswered warning */}
-          {answered < questions.length && answered > 0 && (
-            <div
-              style={{
-                background: COLORS.warningBg,
-                border: `1px solid ${COLORS.clementine}`,
-                borderRadius: 8,
-                padding: "10px 14px",
-                fontSize: 13,
-                color: "#795548",
-                marginTop: 16,
-              }}
-            >
-              {questions.length - answered} question
-              {questions.length - answered > 1 ? "s" : ""} still need an answer before submitting.
+          {/* Always-visible score + submit */}
+          <div
+            className="qa-sticky-bar"
+            style={{
+              margin: "24px -32px -28px", padding: "12px 20px",
+              background: COLORS.white, borderTop: `2px solid ${answered ? colors.border : COLORS.lightGray}`,
+              boxShadow: "0 -6px 18px rgba(0,0,0,0.06)",
+              display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, minWidth: 120 }}>
+              <span style={{ fontSize: 26, fontWeight: 800, fontFamily: FONTS.heading, color: answered ? colors.text : COLORS.midGray }}>
+                {answered ? `${scorePercent}%` : "—"}
+              </span>
+              {answered > 0 && (
+                <span style={{ ...styles.scoreBadge, background: colors.border, color: COLORS.white, padding: "2px 10px" }}>
+                  {passFail}
+                </span>
+              )}
             </div>
-          )}
-
-          <button type="submit" style={styles.submitBtn(!allAnswered || submitting)} disabled={!allAnswered || submitting}>
-            {submitting ? "Saving\u2026" : editing ? "Save Changes" : "Submit Screening"}
-          </button>
+            <div style={{ flex: "1 1 160px", minWidth: 140 }}>
+              <div style={{ fontSize: 12, color: COLORS.midGray, marginBottom: 4 }}>
+                {answered}/{questions.length} answered
+                {answered > 0 ? <> {"\u00B7"} {totalScore} of {scoredCount} met</> : null}
+                {naCount > 0 ? <> {"\u00B7"} {naCount} N/A</> : null}
+              </div>
+              <div style={{ height: 6, background: "#eee", borderRadius: 3, overflow: "hidden" }}>
+                <div style={{ height: "100%", width: `${(answered / questions.length) * 100}%`, background: COLORS.orange, transition: "width .2s" }} />
+              </div>
+            </div>
+            {answered < questions.length && (
+              <button type="button" onClick={jumpToNextUnanswered}
+                style={{ padding: "10px 14px", borderRadius: 8, border: `1.5px solid ${COLORS.orange}`, background: COLORS.white,
+                  color: COLORS.orange, fontWeight: 700, fontFamily: FONTS.heading, fontSize: 13, cursor: "pointer" }}>
+                Next unanswered
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={!allAnswered || submitting}
+              title={missingReason || undefined}
+              style={{ ...styles.submitBtn(!allAnswered || submitting), width: "auto", marginTop: 0, padding: "12px 22px", flex: "0 0 auto" }}
+            >
+              {submitting ? "Saving\u2026" : editing ? "Save Changes" : "Submit Screening"}
+            </button>
+            {missingReason && !submitting && (
+              <div style={{ flexBasis: "100%", fontSize: 12, color: COLORS.midGray }}>{missingReason}</div>
+            )}
+          </div>
         </form>
       </div>
     </div>
