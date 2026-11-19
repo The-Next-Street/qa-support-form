@@ -1,9 +1,15 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useMsal } from "@azure/msal-react";
-import { loginRequest } from "../authConfig";
-import { sharepointConfig } from "../authConfig";
 import { COLORS, FONTS, GRADIENT } from "../brand";
-import { qaFetch } from "../qaApi";
+import {
+  qaFetch, listScreenings, listAgents, toRecord, teamLabel, nameKey, defaultTeam,
+} from "../qaApi";
+import ScreeningDetail from "./ScreeningDetail";
+
+const TEAM_TABS = [
+  { key: "customer_support", label: "Customer Support" },
+  { key: "internal_support", label: "Internal Support" },
+  { key: "all", label: "All Teams" },
+];
 
 // ── Styles ──────────────────────────────────────────────────────────────────
 
@@ -138,51 +144,11 @@ const s = {
   },
 };
 
-// ── Helper: fetch QA records via Microsoft Graph API ────────────────────────
+// ── Helper: fetch QA records from the QA service ────────────────────────────
 
-const GRAPH_SITE = "allstardriver.sharepoint.com:/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam:";
-
-async function fetchQARecords(accessToken) {
-  const { listName } = sharepointConfig;
-  // Expand all fields so we get both custom columns and SharePoint system columns (Created etc.)
-  const endpoint =
-    `https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}/lists/${listName}/items` +
-    `?expand=fields&$top=500`;
-
-  const response = await fetch(endpoint, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly",
-    },
-  });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Graph API error ${response.status}: ${text}`);
-  }
-
-  const data = await response.json();
-  const records = (data.value || []).map((item) => {
-    const f = item.fields || {};
-    // Date priority: DateOfInteraction (CXone) → InteractionDate (legacy) → SubmissionDate → Created
-    const dateStr = f.DateOfInteraction || f.InteractionDate || f.SubmissionDate || f.Created || item.createdDateTime;
-    return {
-      id: item.id,
-      agentName: f.Agent || f.AgentName || "",
-      agentEmail: f.AgentEmail || "",
-      evaluatorName: f.Evaluator || f.EvaluatorName || "",
-      channel: f.Channel || "Phone",
-      contactId: f.ContactId || f.ContactID || "",
-      scorePercent: f.ScorePercent ?? f.TotalScore ?? 0,
-      passFail: f.PassFail || ((f.ScorePercent ?? 0) >= 80 ? "Pass" : "Fail"),
-      date: dateStr ? new Date(dateStr) : null,
-      suggestions: f.SuggestionsForImprovement || "",
-    };
-  });
-  // Sort newest first
-  records.sort((a, b) => (b.date?.getTime() || 0) - (a.date?.getTime() || 0));
-  return records;
+async function fetchQARecords() {
+  const data = await listScreenings();
+  return { records: (data.screenings || []).map(toRecord), truncated: !!data.truncated };
 }
 
 // ── Agent metrics helpers ───────────────────────────────────────────────────
@@ -219,9 +185,13 @@ function isoDate(d) {
 
 // ── Component ───────────────────────────────────────────────────────────────
 
-export default function Dashboard({ refreshKey = 0 }) {
-  const { instance, accounts } = useMsal();
+export default function Dashboard({ refreshKey = 0, onEdit }) {
   const [records, setRecords] = useState([]);
+  const [truncated, setTruncated] = useState(false);
+  const [teamTab, setTeamTab] = useState("customer_support");
+  // nameKey -> team, from the agents the QA service knows
+  const [teamByName, setTeamByName] = useState({});
+  const [openScreeningId, setOpenScreeningId] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [channelFilter, setChannelFilter] = useState("All");
@@ -242,17 +212,13 @@ export default function Dashboard({ refreshKey = 0 }) {
   useEffect(() => {
     async function load() {
       try {
-        let tokenResponse;
-        try {
-          tokenResponse = await instance.acquireTokenSilent({
-            ...loginRequest,
-            account: accounts[0],
-          });
-        } catch {
-          tokenResponse = await instance.acquireTokenPopup(loginRequest);
-        }
-        const data = await fetchQARecords(tokenResponse.accessToken);
-        setRecords(data);
+        const [data, agentData] = await Promise.all([
+          fetchQARecords(),
+          listAgents().catch(() => ({ agents: [] })),
+        ]);
+        setRecords(data.records);
+        setTruncated(data.truncated);
+        setTeamByName(Object.fromEntries((agentData.agents || []).map((a) => [nameKey(a.name), a.team])));
       } catch (err) {
         setError(err.message);
       } finally {
@@ -260,7 +226,14 @@ export default function Dashboard({ refreshKey = 0 }) {
       }
     }
     load();
-  }, [instance, accounts, refreshKey]);
+  }, [refreshKey]);
+
+  // Team of an agent by name: their saved team, else the starting default.
+  const teamOf = useMemo(
+    () => (name) => teamByName[nameKey(name)] || defaultTeam(name),
+    [teamByName]
+  );
+  const inTeam = useMemo(() => (team) => teamTab === "all" || team === teamTab, [teamTab]);
 
   // Load agent metrics when range changes
   useEffect(() => {
@@ -353,23 +326,34 @@ export default function Dashboard({ refreshKey = 0 }) {
       delete a._scoreSum;
     });
 
-    return Object.values(byName).sort((a, b) => b.totalContacts - a.totalContacts);
-  }, [productivity, unavailable, records, metricsRange.start, metricsRange.end]);
+    return Object.values(byName)
+      .filter((a) => inTeam(teamOf(a.agentName)))
+      .sort((a, b) => b.totalContacts - a.totalContacts);
+  }, [productivity, unavailable, records, metricsRange.start, metricsRange.end, teamOf, inTeam]);
+
+  // Screenings in the selected team
+  const teamRecords = useMemo(() => records.filter((r) => inTeam(r.team)), [records, inTeam]);
 
   // Filtered records
   const filtered = useMemo(() => {
-    return records.filter((r) => {
+    return teamRecords.filter((r) => {
       if (channelFilter !== "All" && r.channel !== channelFilter) return false;
       if (agentFilter !== "All" && r.agentName !== agentFilter) return false;
       return true;
     });
-  }, [records, channelFilter, agentFilter]);
+  }, [teamRecords, channelFilter, agentFilter]);
 
   // Unique agents for dropdown
   const agents = useMemo(() => {
-    const names = [...new Set(records.map((r) => r.agentName).filter(Boolean))];
+    const names = [...new Set(teamRecords.map((r) => r.agentName).filter(Boolean))];
     return names.sort();
-  }, [records]);
+  }, [teamRecords]);
+
+  // Reviewed agents in the current filters (not every agent ever screened)
+  const reviewedCount = useMemo(
+    () => new Set(filtered.map((r) => r.agentName).filter(Boolean)).size,
+    [filtered]
+  );
 
   // Summary stats (based on filtered)
   const stats = useMemo(() => {
@@ -427,6 +411,34 @@ export default function Dashboard({ refreshKey = 0 }) {
                 </div>
               )}
 
+              {/* Team tabs */}
+              <div role="tablist" style={{ display: "flex", gap: 8, marginBottom: 20, flexWrap: "wrap" }}>
+                {TEAM_TABS.map((t) => (
+                  <button
+                    key={t.key}
+                    type="button"
+                    role="tab"
+                    aria-selected={teamTab === t.key}
+                    onClick={() => { setTeamTab(t.key); setAgentFilter("All"); setExpandedAgent(null); }}
+                    style={{
+                      padding: "8px 18px", borderRadius: 20, border: "2px solid",
+                      borderColor: teamTab === t.key ? COLORS.orange : COLORS.lightGray,
+                      background: teamTab === t.key ? "#FEF3E2" : COLORS.white,
+                      color: teamTab === t.key ? COLORS.orange : COLORS.midGray,
+                      fontSize: 14, fontWeight: 600, fontFamily: FONTS.heading, cursor: "pointer",
+                    }}
+                  >
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+
+              {truncated && (
+                <div style={{ fontSize: 12, color: COLORS.midGray, marginBottom: 12 }}>
+                  Showing the newest 5,000 screenings.
+                </div>
+              )}
+
               {/* Summary Stats */}
               <div style={s.statsRow}>
                 <div style={s.statCard(COLORS.orange)}>
@@ -442,7 +454,7 @@ export default function Dashboard({ refreshKey = 0 }) {
                   <p style={s.statLabel}>Pass Rate</p>
                 </div>
                 <div style={s.statCard(COLORS.gray)}>
-                  <p style={s.statNum(COLORS.gray)}>{agents.length}</p>
+                  <p style={s.statNum(COLORS.gray)}>{reviewedCount}</p>
                   <p style={s.statLabel}>Agents Reviewed</p>
                 </div>
               </div>
@@ -605,7 +617,11 @@ export default function Dashboard({ refreshKey = 0 }) {
                                       </thead>
                                       <tbody>
                                         {a.screeningRecords.map((r) => (
-                                          <tr key={r.id}>
+                                          <tr
+                                            key={r.id}
+                                            onClick={(e) => { e.stopPropagation(); setOpenScreeningId(r.id); }}
+                                            style={{ cursor: "pointer" }}
+                                          >
                                             <td style={s.td}>{r.date ? r.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "-"}</td>
                                             <td style={s.td}>{r.channel}</td>
                                             <td style={{ ...s.td, fontFamily: "monospace", fontSize: 11 }}>{r.contactId || "-"}</td>
@@ -682,7 +698,7 @@ export default function Dashboard({ refreshKey = 0 }) {
                   ))}
                 </select>
                 <span style={{ fontSize: 13, color: COLORS.midGray }}>
-                  Showing {filtered.length} of {records.length} screenings
+                  Showing {filtered.length} of {teamRecords.length} screenings · click a row for details
                 </span>
               </div>
 
@@ -697,11 +713,17 @@ export default function Dashboard({ refreshKey = 0 }) {
                       <th style={s.th}>Score</th>
                       <th style={s.th}>Result</th>
                       <th style={s.th}>Evaluator</th>
+                      {teamTab === "all" && <th style={s.th}>Team</th>}
                     </tr>
                   </thead>
                   <tbody>
                     {filtered.map((r, i) => (
-                      <tr key={r.id || i} style={{ background: i % 2 === 0 ? COLORS.white : "#FAFAFA" }}>
+                      <tr
+                        key={r.id || i}
+                        onClick={() => setOpenScreeningId(r.id)}
+                        title="Open screening details"
+                        style={{ background: i % 2 === 0 ? COLORS.white : "#FAFAFA", cursor: "pointer" }}
+                      >
                         <td style={s.td}>
                           {r.date ? r.date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
                         </td>
@@ -722,7 +744,11 @@ export default function Dashboard({ refreshKey = 0 }) {
                         <td style={s.td}>
                           <span style={s.badge(r.passFail === "Pass")}>{r.passFail}</span>
                         </td>
-                        <td style={s.td}>{r.evaluatorName}</td>
+                        <td style={s.td}>
+                          {r.evaluatorName}
+                          {r.edited && <span style={{ marginLeft: 6, fontSize: 11, color: COLORS.sky }}>edited</span>}
+                        </td>
+                        {teamTab === "all" && <td style={s.td}>{teamLabel(r.team)}</td>}
                       </tr>
                     ))}
                   </tbody>
@@ -733,6 +759,14 @@ export default function Dashboard({ refreshKey = 0 }) {
                 <div style={{ ...s.center, padding: "24px 20px" }}>
                   No screenings match the selected filters.
                 </div>
+              )}
+
+              {openScreeningId && (
+                <ScreeningDetail
+                  screeningId={openScreeningId}
+                  onClose={() => setOpenScreeningId(null)}
+                  onEdit={(screening) => { setOpenScreeningId(null); onEdit && onEdit(screening); }}
+                />
               )}
             </>
           )}

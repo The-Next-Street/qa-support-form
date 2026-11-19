@@ -1,49 +1,12 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { useMsal } from "@azure/msal-react";
-import { loginRequest, sharepointConfig } from "../authConfig";
+import { listScreenings, toRecord } from "../qaApi";
 import { COLORS, FONTS, GRADIENT } from "../brand";
 
 const DEFAULT_FLAG_THRESHOLD = 60; // Agents with avg below this are flagged for manager review
-const GRAPH_SITE =
-  "allstardriver.sharepoint.com:/sites/ServiceExcellenceDepartment-ALL-CustomerServiceTeam:";
-
-function isoDate(d) {
-  return d.toISOString().split("T")[0];
-}
-
-// ── Data fetch (mirrors Dashboard) ─────────────────────────────────────────
-
-async function fetchQARecords(accessToken) {
-  const { listName } = sharepointConfig;
-  const endpoint =
-    `https://graph.microsoft.com/v1.0/sites/${GRAPH_SITE}/lists/${listName}/items` +
-    `?expand=fields&$top=500`;
-
-  const res = await fetch(endpoint, {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-      Prefer: "HonorNonIndexedQueriesWarningMayFailRandomly",
-    },
-  });
-  if (!res.ok) throw new Error(`Graph ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return (data.value || []).map((item) => {
-    const f = item.fields || {};
-    const dateStr = f.DateOfInteraction || f.InteractionDate || f.SubmissionDate || f.Created || item.createdDateTime;
-    return {
-      id: item.id,
-      agentName: f.Agent || f.AgentName || "Unknown",
-      agentEmail: f.AgentEmail || "",
-      evaluatorName: f.Evaluator || f.EvaluatorName || "",
-      channel: f.Channel || "Phone",
-      contactId: f.ContactId || f.ContactID || "",
-      scorePercent: Number(f.ScorePercent ?? f.TotalScore ?? 0),
-      passFail: f.PassFail || ((Number(f.ScorePercent ?? 0)) >= 80 ? "Pass" : "Fail"),
-      date: dateStr ? new Date(dateStr) : null,
-      suggestions: f.SuggestionsForImprovement || "",
-    };
-  });
+// Screenings come from the QA service (see qaApi.js).
+async function fetchQARecords() {
+  const data = await listScreenings();
+  return (data.screenings || []).map(toRecord);
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────
@@ -168,7 +131,6 @@ const s = {
 // ── Component ──────────────────────────────────────────────────────────────
 
 export default function ManagerReview({ refreshKey = 0 }) {
-  const { instance, accounts } = useMsal();
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -184,13 +146,7 @@ export default function ManagerReview({ refreshKey = 0 }) {
   useEffect(() => {
     async function load() {
       try {
-        let tokenRes;
-        try {
-          tokenRes = await instance.acquireTokenSilent({ ...loginRequest, account: accounts[0] });
-        } catch {
-          tokenRes = await instance.acquireTokenPopup(loginRequest);
-        }
-        const data = await fetchQARecords(tokenRes.accessToken);
+        const data = await fetchQARecords();
         setRecords(data);
       } catch (err) {
         setError(err.message);
@@ -199,7 +155,7 @@ export default function ManagerReview({ refreshKey = 0 }) {
       }
     }
     load();
-  }, [instance, accounts, refreshKey]);
+  }, [refreshKey]);
 
   // Filter records to the selected date range
   const filteredRecords = useMemo(() => {
