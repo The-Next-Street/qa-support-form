@@ -193,10 +193,11 @@ function AppContent() {
 
   // Ask the QA service whether the signed-in person is a manager (it decides;
   // this only controls whether the Settings tab is shown).
+  const signedInUser = accounts[0]?.username || "";
   useEffect(() => {
-    if (!accounts[0]) return;
+    if (!signedInUser) return;
     getMe().then((me) => setIsManager(!!me.isManager)).catch(() => setIsManager(false));
-  }, [accounts]);
+  }, [signedInUser]);
 
   function openEdit(screening) {
     setPrefill(null);

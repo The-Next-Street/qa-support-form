@@ -3,6 +3,10 @@ import { listScreenings, toRecord } from "../qaApi";
 import { COLORS, FONTS, GRADIENT } from "../brand";
 
 const DEFAULT_FLAG_THRESHOLD = 60; // Agents with avg below this are flagged for manager review
+function isoDate(d) {
+  return d.toISOString().split("T")[0];
+}
+
 // Screenings come from the QA service (see qaApi.js).
 async function fetchQARecords() {
   const data = await listScreenings();

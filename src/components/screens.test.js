@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import Dashboard from "./Dashboard";
 import ScreeningDetail from "./ScreeningDetail";
 import QAForm from "./QAForm";
+import ManagerReview from "./ManagerReview";
 import * as api from "../qaApi";
 import { QA_QUESTIONS } from "../questions";
 
@@ -123,4 +124,11 @@ test("edit mode pre-fills the form and saves through updateScreening", async () 
   }));
   expect(api.createScreening).not.toHaveBeenCalled();
   expect(container.textContent).toContain("No changes were made");
+});
+
+test("manager review renders with data (it crashed on a missing date helper)", async () => {
+  await act(async () => root.render(<ManagerReview />));
+  await flush();
+  expect(container.textContent).toContain("Ed Green");
+  expect(container.textContent).toContain("Lisa Gilmore");
 });
