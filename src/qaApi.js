@@ -143,6 +143,9 @@ export function toRecord(s) {
     canEdit: !!s.can_edit,
     edited: !!s.updated_at,
     imported: !!s.imported,
+    // false once a manager removes the person (Settings → Teams); older
+    // service versions don't send it, so missing means active.
+    agentActive: s.agent_active !== false,
   };
 }
 

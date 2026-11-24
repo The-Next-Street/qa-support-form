@@ -4,6 +4,7 @@ import Dashboard from "./Dashboard";
 import ScreeningDetail from "./ScreeningDetail";
 import QAForm from "./QAForm";
 import ManagerReview from "./ManagerReview";
+import Settings from "./Settings";
 import * as api from "../qaApi";
 import { QA_QUESTIONS } from "../questions";
 
@@ -25,6 +26,8 @@ jest.mock("../qaApi", () => {
     updateScreening: jest.fn(),
     createScreening: jest.fn(),
     uploadAttachment: jest.fn(),
+    updateAgent: jest.fn(),
+    listEvaluatorPairs: jest.fn(),
   };
 });
 jest.mock("../msalInstance", () => ({ msalInstance: {} }));
@@ -164,4 +167,43 @@ test("new screening: Y / N / A keys answer and advance; Submit explains what's m
   await act(async () => { await new Promise((r) => setTimeout(r, 450)); });
   const draftKey = Object.keys(window.localStorage).find((k) => k.startsWith("qa-draft:"));
   expect(JSON.parse(window.localStorage.getItem(draftKey)).answers.Greeting).toBe("Yes");
+});
+
+test("removed people are hidden on the dashboard unless included", async () => {
+  api.listScreenings.mockResolvedValue({
+    screenings: [
+      screening({ id: 1, agent_name: "Ed Green" }),
+      screening({ id: 5, agent_name: "Levi Gone", agent_active: false }),
+    ],
+  });
+  await act(async () => root.render(<Dashboard />));
+  await flush();
+  click(byText("Screenings"));
+  const table = () => [...container.querySelectorAll("table")].pop().textContent;
+  expect(table()).toContain("Ed Green");
+  expect(table()).not.toContain("Levi Gone");
+  const box = [...container.querySelectorAll('input[type="checkbox"]')]
+    .find((el) => el.parentElement.textContent.includes("Include removed people"));
+  click(box);
+  expect(table()).toContain("Levi Gone");
+});
+
+test("settings: Remove asks first, saves active=false, and offers Restore", async () => {
+  api.listAgents.mockResolvedValue({ agents: [
+    { id: 7, name: "Levi Gone", email: "", team: "customer_support", active: true },
+    { id: 8, name: "Ed Green", email: "", team: "customer_support", active: true },
+  ] });
+  api.listEvaluatorPairs.mockResolvedValue({ pairs: [] });
+  api.updateAgent.mockResolvedValue({ id: 7, name: "Levi Gone", team: "customer_support", active: false });
+  window.confirm = jest.fn(() => true);
+  await act(async () => root.render(<Settings />));
+  await flush();
+  const row = [...container.querySelectorAll("tr")].find((tr) => tr.textContent.includes("Levi Gone"));
+  await act(async () => { row.querySelector("button").click(); });
+  await flush();
+  expect(window.confirm).toHaveBeenCalled();
+  expect(api.updateAgent).toHaveBeenCalledWith(7, { active: false });
+  expect([...container.querySelectorAll("tr")].some((tr) => tr.textContent.includes("Levi Gone"))).toBe(false);
+  click(byText("\u25B8 Removed people (1)"));
+  expect(byText("Restore")).toBeTruthy();
 });

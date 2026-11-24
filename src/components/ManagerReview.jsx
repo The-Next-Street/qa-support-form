@@ -10,7 +10,8 @@ function isoDate(d) {
 // Screenings come from the QA service (see qaApi.js).
 async function fetchQARecords() {
   const data = await listScreenings();
-  return (data.screenings || []).map(toRecord);
+  // People a manager removed (Settings → Teams) are left out.
+  return (data.screenings || []).map(toRecord).filter((r) => r.agentActive);
 }
 
 // ── Styles ─────────────────────────────────────────────────────────────────
