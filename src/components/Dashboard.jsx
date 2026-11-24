@@ -371,6 +371,7 @@ export default function Dashboard({ refreshKey = 0, onEdit }) {
   const [evaluator, setEvaluator] = useState("All");
   const [result, setResult] = useState("All");
   const [search, setSearch] = useState("");
+  const [includeRemoved, setIncludeRemoved] = useState(false);
 
   const [view, setView] = useState("overview");
   const [openId, setOpenId] = useState(null);
@@ -411,8 +412,8 @@ export default function Dashboard({ refreshKey = 0, onEdit }) {
 
   // Team + period only (feeds the agent/evaluator pickers and "previous period")
   const teamRows = useMemo(
-    () => records.filter((r) => team === "all" || r.team === team),
-    [records, team]
+    () => records.filter((r) => (team === "all" || r.team === team) && (includeRemoved || r.agentActive)),
+    [records, team, includeRemoved]
   );
   const inRange = (r, start, end) => !start || (r.date && r.date >= start && r.date < end);
 
@@ -566,6 +567,10 @@ export default function Dashboard({ refreshKey = 0, onEdit }) {
           </select>
           <input aria-label="Search" type="search" placeholder="Search agent, evaluator or contact ID"
             style={{ ...ui.select, flex: "1 1 200px", minWidth: 160 }} value={search} onChange={(e) => setSearch(e.target.value)} />
+          <label style={{ ...ui.muted, display: "inline-flex", alignItems: "center", gap: 5, cursor: "pointer" }}>
+            <input type="checkbox" checked={includeRemoved} onChange={(e) => setIncludeRemoved(e.target.checked)} />
+            Include removed people
+          </label>
           {filtersActive && (
             <button type="button" onClick={clearFilters}
               style={{ ...ui.select, cursor: "pointer", color: COLORS.orange, borderColor: "transparent", background: "transparent", fontWeight: 600 }}>

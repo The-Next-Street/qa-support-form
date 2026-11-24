@@ -52,11 +52,11 @@ function TeamsSection() {
     listAgents().then((d) => setAgents(d.agents || [])).catch((e) => setError(e.message));
   }, []);
 
-  async function changeTeam(agent, team) {
+  async function save(agent, change) {
     setSavingId(agent.id);
     setError(null);
     try {
-      const saved = await updateAgent(agent.id, { team });
+      const saved = await updateAgent(agent.id, change);
       setAgents((prev) => prev.map((a) => (a.id === agent.id ? { ...a, ...saved } : a)));
     } catch (e) {
       setError(`${agent.name}: ${e.message}`);
@@ -65,13 +65,24 @@ function TeamsSection() {
     }
   }
 
-  const shown = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    return agents.filter((a) => !q || a.name.toLowerCase().includes(q));
-  }, [agents, filter]);
+  function remove(agent) {
+    const ok = window.confirm(
+      `Remove ${agent.name} from the QA app?\n\nThey'll disappear from agent lists, the dashboard, Manager Review and ` +
+      `Assignments, and their evaluator pairings end. Their past evaluations are kept, and you can restore them here.`
+    );
+    if (ok) save(agent, { active: false });
+  }
+
+  const [showRemoved, setShowRemoved] = useState(false);
+  const q = filter.trim().toLowerCase();
+  const shown = useMemo(
+    () => agents.filter((a) => a.active !== false && (!q || a.name.toLowerCase().includes(q))),
+    [agents, q]
+  );
+  const removed = useMemo(() => agents.filter((a) => a.active === false), [agents]);
   const counts = useMemo(() => {
     const c = { customer_support: 0, internal_support: 0 };
-    agents.forEach((a) => { if (a.team in c) c[a.team] += 1; });
+    agents.forEach((a) => { if (a.active !== false && a.team in c) c[a.team] += 1; });
     return c;
   }, [agents]);
 
@@ -92,7 +103,7 @@ function TeamsSection() {
       <div style={{ maxHeight: 420, overflowY: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
-            <tr><th style={s.th}>Name</th><th style={s.th}>Email</th><th style={s.th}>Team</th></tr>
+            <tr><th style={s.th}>Name</th><th style={s.th}>Email</th><th style={s.th}>Team</th><th style={s.th} /></tr>
           </thead>
           <tbody>
             {shown.map((a) => (
@@ -103,7 +114,7 @@ function TeamsSection() {
                   <select
                     value={a.team}
                     disabled={savingId === a.id}
-                    onChange={(e) => changeTeam(a, e.target.value)}
+                    onChange={(e) => save(a, { team: e.target.value })}
                     style={s.input}
                     aria-label={`Team for ${a.name}`}
                   >
@@ -112,14 +123,44 @@ function TeamsSection() {
                     ))}
                   </select>
                 </td>
+                <td style={{ ...s.td, textAlign: "right" }}>
+                  <button type="button" onClick={() => remove(a)} disabled={savingId === a.id}
+                    style={{ ...s.btn(false, savingId === a.id), padding: "4px 10px", fontSize: 12,
+                      borderColor: COLORS.lightGray, color: COLORS.fail }}>
+                    Remove
+                  </button>
+                </td>
               </tr>
             ))}
             {shown.length === 0 && (
-              <tr><td style={s.td} colSpan={3}>No one yet. Run the import below to bring in past screenings.</td></tr>
+              <tr><td style={s.td} colSpan={4}>No one yet. Run the import below to bring in past screenings.</td></tr>
             )}
           </tbody>
         </table>
       </div>
+      {removed.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <button type="button" onClick={() => setShowRemoved((v) => !v)}
+            style={{ border: "none", background: "none", padding: 0, cursor: "pointer", color: COLORS.midGray, fontSize: 13 }}>
+            {showRemoved ? "\u25BE" : "\u25B8"} Removed people ({removed.length})
+          </button>
+          {showRemoved && (
+            <div style={{ marginTop: 6 }}>
+              {removed.map((a) => (
+                <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+                  padding: "6px 0", borderBottom: `1px solid ${COLORS.offWhite}`, fontSize: 13 }}>
+                  <span style={{ color: COLORS.midGray }}>{a.name}</span>
+                  <button type="button" onClick={() => save(a, { active: true })} disabled={savingId === a.id}
+                    style={{ ...s.btn(false, savingId === a.id), padding: "4px 10px", fontSize: 12 }}>
+                    Restore
+                  </button>
+                </div>
+              ))}
+              <div style={{ ...s.hint, margin: "6px 0 0" }}>Restoring doesn't bring back their pairings; add those again below.</div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

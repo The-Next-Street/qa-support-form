@@ -4,7 +4,7 @@ import { loginRequest } from "../authConfig";
 import { sendScoreEmail } from "../emailService";
 import { QA_QUESTIONS_BY_CHANNEL, CHANNELS, calculateScore } from "../questions";
 import { COLORS, FONTS, GRADIENT } from "../brand";
-import { qaFetch, createScreening, updateScreening, uploadAttachment } from "../qaApi";
+import { qaFetch, createScreening, updateScreening, uploadAttachment, listAgents, nameKey } from "../qaApi";
 
 // ── CXone agent roster ─────────────────────────────────────────────────────
 
@@ -18,10 +18,17 @@ async function fetchAgentRoster() {
   if (_agentRosterPromise) return _agentRosterPromise;
   _agentRosterPromise = (async () => {
     try {
-      const res = await qaFetch("/api/metrics/agents");
+      const [res, stored] = await Promise.all([
+        qaFetch("/api/metrics/agents"),
+        listAgents().catch(() => ({ agents: [] })),
+      ]);
       if (!res.ok) return [];
       const data = await res.json();
-      const list = data.agents || [];
+      // Leave out people a manager removed (Settings → Teams).
+      const removed = new Set(
+        (stored.agents || []).filter((a) => a.active === false).map((a) => nameKey(a.name))
+      );
+      const list = (data.agents || []).filter((a) => !removed.has(nameKey(a.name)));
       // Only cache non-empty results so a failed fetch doesn't lock in an empty list
       if (list.length > 0) _agentRosterCache = list;
       return list;

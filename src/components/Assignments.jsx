@@ -114,7 +114,8 @@ async function fetchEvaluatorAgents() {
 // Saved assignments, in the field shape this screen was built around.
 async function fetchAssignments() {
   const data = await listAssignments();
-  return (data.assignments || []).map((x) => ({
+  // People a manager removed (Settings → Teams) are left out.
+  return (data.assignments || []).filter((x) => x.agent_active !== false).map((x) => ({
     id: x.id,
     Evaluator: x.evaluator_name,
     EvaluatorEmail: x.evaluator_email,
